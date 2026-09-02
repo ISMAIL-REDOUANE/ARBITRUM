@@ -1,0 +1,5 @@
+[profile.default]
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+build_info = true

@@ -1,0 +1,48 @@
+# Build artifacts
+target/
+Cargo.lock
+
+# Rust build directory
+C:\RustBuilds\
+
+# Environment and secrets
+.env
+*.env
+.env.local
+.env.production
+.env.testnet
+.private_key
+
+# Logs
+*.log
+engine_runtime.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node modules (except for dashboard)
+arbitrage-dashboard/node_modules/
+
+# Cache
+.cache/
+.cargo/
+*.rs.bk
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# Confidential files
+*.pem
+*.key
+secrets/
+credentials/
