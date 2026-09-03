@@ -3,3 +3,5 @@ via_ir = true
 optimizer = true
 optimizer_runs = 200
 build_info = true
+libs = ["lib", "arbitrage-engine/lib"]
+fs_permissions = [{ access = "read", path = "arbitrage-engine/lib" }]
