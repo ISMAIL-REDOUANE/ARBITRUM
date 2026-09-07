@@ -1,0 +1,61 @@
+# Lead-Lag Arbitrage Engine Configuration
+
+[engine]
+min_profit_wei = 10000000000000000    # 0.01 ETH minimum profit
+max_gas_limit = 5000000               # 5M gas max per tx
+ring_buffer_size = 1024              # SPSC channel capacity
+simulation_timeout_ms = 500           # REVM simulation timeout
+max_concurrent_simulations = 4        # Max parallel simulations
+
+[binance]
+ws_url = "wss://stream.binance.com:9443/ws"
+symbols = ["ethusdt", "wbtcusdt"]
+reconnect_delay_ms = 1000
+max_reconnect_attempts = 10
+
+[chains.base]
+chain_id = 8453
+rpc_ws_url = "wss://mainnet.base.org"
+rpc_http_url = "https://mainnet.base.org"
+
+[chains.base.addresses]
+engine = "0x0000000000000000000000000000000000000000"
+balancer_vault = "0xBA12222222228d8Ba445958a75a0704d588BF65"
+uniswap_v2_router = ""
+uniswap_v3_router = "0x2626664c2603336E57B271c5C0b26D421d473758"
+aerodrome_router = "0x0B404b975d461A45E3Aa6b96809746b40A76239F"
+sushiswap_router = ""
+weth = "0x4200000000000000000000000000000000000006"
+usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+usdt = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"
+
+[chains.arbitrum]
+chain_id = 42161
+rpc_ws_url = "wss://arb1.arbitrum.io/ws"
+rpc_http_url = "https://arb1.arbitrum.io/rpc"
+
+[chains.arbitrum.addresses]
+engine = "0x0000000000000000000000000000000000000000"
+balancer_vault = "0xBA12222222228d8Ba445958a75a0704d588BF65"
+uniswap_v2_router = ""
+uniswap_v3_router = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
+aerodrome_router = ""
+sushiswap_router = "0x1b02dA8Cb0d097cB8d57d3c6EFb1b86D8F2E2b3F"
+camelot_router = "0x51eC82945A4482D01b01C0C2C45d314198D2DEE2"
+weth = "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"
+usdc = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+usdt = "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"
+
+[dex.uniswap_v2_pools]
+
+[dex.uniswap_v3_pools]
+
+[dex.aerodrome_pools]
+
+[dex.sushiswap_pools]
+
+[risk]
+max_position_size = 1000000000
+max_daily_trades = 1000
+max_daily_loss_wei = 1000000000000000000
+trade_cooldown_ms = 100
