@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/// @title ArbitrageExecutorYulV2
+/// @notice DEPRECATED - DO NOT USE IN PRODUCTION
+/// @dev This executor uses a different flashLoan interface that is incompatible with Balancer V2 mainnet.
+/// @dev Use ArbitrageExecutorTwoLeg instead which has the correct Balancer V2 interface.
+/// @dev This contract is kept for testing/comparison purposes only.
 contract ArbitrageExecutorYulV2 {
     address constant BALANCER_VAULT = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address constant UNISWAP_V3_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
