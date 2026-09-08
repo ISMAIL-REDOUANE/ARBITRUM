@@ -64,7 +64,7 @@ echo        Chain ID: %CHAIN_ID%
 echo.
 
 set DEPLOY_OUTPUT=
-for /f "tokens=*" %%i in ('forge create --rpc-url "%ARBITRUM_SEPOLIA_RPC%" --chain-id %CHAIN_ID% --private-key %PRIVATE_KEY% src\contracts\ArbitrageExecutorYul.sol:ArbitrageExecutorYul --constructor-args %MIN_PROFIT_WEI% 2^>^&1') do (
+for /f "tokens=*" %%i in ('forge create --rpc-url "%ARBITRUM_SEPOLIA_RPC%" --chain-id %CHAIN_ID% --private-key %PRIVATE_KEY% contracts\ArbitrageExecutorTwoLeg.sol:ArbitrageExecutorTwoLeg --constructor-args %MIN_PROFIT_WEI% 2^>^&1') do (
     set DEPLOY_OUTPUT=!DEPLOY_OUTPUT!%%i
 )
 

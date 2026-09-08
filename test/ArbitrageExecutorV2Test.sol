@@ -46,14 +46,7 @@ contract ArbitrageExecutorV2Test is Test {
 
     function testUserDataEncoding() public pure {
         bytes memory userData = abi.encode(
-            address(0x123),
-            USDC,
-            1000e6,
-            100e6,
-            address(0x456),
-            address(0x789),
-            uint24(3000),
-            address(0xABC)
+            address(0x123), USDC, 1000e6, 100e6, address(0x456), address(0x789), uint24(3000), address(0xABC)
         );
         assertEq(userData.length, 256);
     }
@@ -98,11 +91,7 @@ contract ArbitrageExecutorV2Test is Test {
 contract MockBalancerVault {
     bytes4 constant CALLBACK_SELECTOR = 0x8a1e5e83;
 
-    function flashLoan(
-        address[] memory tokens,
-        uint256[] memory amounts,
-        bytes memory userData
-    ) external {
+    function flashLoan(address[] memory tokens, uint256[] memory amounts, bytes memory userData) external {
         require(tokens.length == 1);
         require(amounts.length == 1);
 
@@ -110,9 +99,7 @@ contract MockBalancerVault {
         uint256[] memory feeAmounts = new uint256[](1);
         feeAmounts[0] = fee;
 
-        IFlashLoanRecipient(msg.sender).receiveFlashLoan(
-            tokens, amounts, feeAmounts, userData
-        );
+        IFlashLoanRecipient(msg.sender).receiveFlashLoan(tokens, amounts, feeAmounts, userData);
     }
 }
 

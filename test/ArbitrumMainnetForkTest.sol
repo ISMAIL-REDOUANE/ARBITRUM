@@ -4,10 +4,6 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../contracts/ArbitrageExecutorTwoLeg.sol";
 
-interface IUniswapV3Factory {
-    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
-}
-
 contract ArbitrumMainnetForkTest is Test {
     ArbitrageExecutorTwoLeg public executor;
 
@@ -105,13 +101,9 @@ contract ArbitrumMainnetForkTest is Test {
         bytes memory leg2Data = _buildLegData(USDC, WETH, address(executor), 3000, 10_000_000, principal + 1, limitLeg2);
 
         vm.expectCall(
-            BALANCER_VAULT,
-            abi.encodeWithSelector(bytes4(keccak256("flashLoan(address,address[],uint256[],bytes)")))
+            BALANCER_VAULT, abi.encodeWithSelector(bytes4(keccak256("flashLoan(address,address[],uint256[],bytes)")))
         );
-        vm.expectCall(
-            UNISWAP_V3_ROUTER,
-            abi.encodeWithSelector(bytes4(0x04e45aaf))
-        );
+        vm.expectCall(UNISWAP_V3_ROUTER, abi.encodeWithSelector(bytes4(0x04e45aaf)));
 
         // Execute arbitrage - without try/catch to enforce strict pass/fail visibility
         uint256 profit = executor.execute(WETH, principal, pool500, pool3000, leg1Data, leg2Data);
@@ -145,11 +137,11 @@ contract ArbitrumMainnetForkTest is Test {
         assembly {
             let p := add(legData, 32)
             mstore(p, shl(224, 0x04e45aaf)) // 4 bytes selector
-            mstore(add(p, 4), tokenIn)      // 32 bytes (tokenIn)
-            mstore(add(p, 36), tokenOut)    // 32 bytes (tokenOut)
-            mstore(add(p, 68), fee)         // 32 bytes (fee)
-            mstore(add(p, 100), recipient)  // 32 bytes (recipient)
-            mstore(add(p, 132), amountIn)   // 32 bytes (amountIn)
+            mstore(add(p, 4), tokenIn) // 32 bytes (tokenIn)
+            mstore(add(p, 36), tokenOut) // 32 bytes (tokenOut)
+            mstore(add(p, 68), fee) // 32 bytes (fee)
+            mstore(add(p, 100), recipient) // 32 bytes (recipient)
+            mstore(add(p, 132), amountIn) // 32 bytes (amountIn)
             mstore(add(p, 164), amountOutMin) // 32 bytes (amountOutMin)
             mstore(add(p, 196), sqrtPriceLimitX96) // 32 bytes (sqrtPriceLimit)
         }
@@ -167,8 +159,7 @@ contract MinimalFlashLoanBorrower {
         amounts[0] = amount;
         (bool success, bytes memory returnData) = BALANCER_VAULT.call(
             abi.encodeWithSelector(
-                bytes4(keccak256("flashLoan(address,address[],uint256[],bytes)")),
-                address(this), tokens, amounts, ""
+                bytes4(keccak256("flashLoan(address,address[],uint256[],bytes)")), address(this), tokens, amounts, ""
             )
         );
         require(success, string(returnData));

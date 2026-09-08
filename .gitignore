@@ -46,3 +46,7 @@ arbitrage-dashboard/node_modules/
 *.key
 secrets/
 credentials/
+
+# Nested clone
+ARBITRUM/
+package-lock.json

@@ -32,10 +32,16 @@ contract P0VerificationTest is Test {
     }
 
     function decodeUserData(bytes memory data) internal pure returns (UserData memory) {
-        (address initiator, address loanToken, uint256 loanAmount,
-         uint256 minProfit, address pool, address tokenOut,
-         uint24 fee, address recipient) =
-            abi.decode(data, (address, address, uint256, uint256, address, address, uint24, address));
+        (
+            address initiator,
+            address loanToken,
+            uint256 loanAmount,
+            uint256 minProfit,
+            address pool,
+            address tokenOut,
+            uint24 fee,
+            address recipient
+        ) = abi.decode(data, (address, address, uint256, uint256, address, address, uint24, address));
         return UserData(initiator, loanToken, loanAmount, minProfit, pool, tokenOut, fee, recipient);
     }
 
@@ -88,10 +94,7 @@ contract P0VerificationTest is Test {
         address recipient = makeAddr("recipient");
         address initiator = makeAddr("initiator");
 
-        bytes memory userData = abi.encode(
-            initiator, USDC, 1_000_000e6, 100e6,
-            pool, WETH, uint24(3000), recipient
-        );
+        bytes memory userData = abi.encode(initiator, USDC, 1_000_000e6, 100e6, pool, WETH, uint24(3000), recipient);
 
         assertEq(userData.length, 256, "userData should be exactly 256 bytes");
     }
@@ -101,10 +104,7 @@ contract P0VerificationTest is Test {
         address recipient = makeAddr("recipient");
         address initiator = makeAddr("initiator");
 
-        bytes memory userData = abi.encode(
-            initiator, USDC, 1_000_000e6, 100e6,
-            pool, WETH, uint24(3000), recipient
-        );
+        bytes memory userData = abi.encode(initiator, USDC, 1_000_000e6, 100e6, pool, WETH, uint24(3000), recipient);
 
         UserData memory decoded = decodeUserData(userData);
 
@@ -131,15 +131,11 @@ contract P0VerificationTest is Test {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = loanAmount;
         bytes memory userData = abi.encode(
-            address(0x123), loanToken, loanAmount, 100e6,
-            address(0x456), WETH, uint24(3000), address(0x789)
+            address(0x123), loanToken, loanAmount, 100e6, address(0x456), WETH, uint24(3000), address(0x789)
         );
 
         bytes memory expectedCalldata = abi.encodeWithSelector(
-            bytes4(keccak256("flashLoan(address[],uint256[],bytes)")),
-            tokens,
-            amounts,
-            userData
+            bytes4(keccak256("flashLoan(address[],uint256[],bytes)")), tokens, amounts, userData
         );
 
         bytes4 selector = bytes4(keccak256("flashLoan(address[],uint256[],bytes)"));
@@ -176,10 +172,7 @@ contract P0VerificationTest is Test {
         uint256[] memory feeAmounts = new uint256[](1);
         feeAmounts[0] = 1000e6;
 
-        bytes memory userData = abi.encode(
-            initiator, USDC, 1_000_000e6, 100e6,
-            pool, WETH, uint24(3000), recipient
-        );
+        bytes memory userData = abi.encode(initiator, USDC, 1_000_000e6, 100e6, pool, WETH, uint24(3000), recipient);
 
         assertEq(tokens[0], USDC);
         assertEq(amounts[0], 1_000_000e6);
@@ -192,10 +185,7 @@ contract P0VerificationTest is Test {
         address pool = makeAddr("pool");
         address recipient = makeAddr("recipient");
 
-        bytes memory userData = abi.encode(
-            initiator, USDC, 1_000_000e6, 100e6,
-            pool, WETH, uint24(3000), recipient
-        );
+        bytes memory userData = abi.encode(initiator, USDC, 1_000_000e6, 100e6, pool, WETH, uint24(3000), recipient);
 
         UserData memory decoded = decodeUserData(userData);
 
@@ -246,11 +236,11 @@ contract P0VerificationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
 
     function testProfitAccountingCaseC_Fails() public pure {
-        uint256 balAfter = 1_000_800e6;  // Balance after swap
+        uint256 balAfter = 1_000_800e6; // Balance after swap
         uint256 loanAmount = 1_000_000e6; // Borrowed
-        uint256 feeAmount = 500e6;        // Fee (smaller to allow balAfter > repayment)
+        uint256 feeAmount = 500e6; // Fee (smaller to allow balAfter > repayment)
         uint256 repayment = loanAmount + feeAmount; // 1_000_500e6
-        uint256 minProfitAmount = 1000e6;  // Required profit
+        uint256 minProfitAmount = 1000e6; // Required profit
 
         bool balAfterExceedsRepayment = balAfter > repayment;
         assertTrue(balAfterExceedsRepayment, "Precondition: balAfter must exceed repayment");

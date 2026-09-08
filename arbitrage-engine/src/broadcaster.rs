@@ -720,9 +720,8 @@ mod tests {
     fn test_invalid_executor_address_rejected() {
         std::env::set_var("EXECUTOR_ADDRESS", "0xInvalidAddress");
 
-        let result = hex::decode(
-            std::env::var("EXECUTOR_ADDRESS").unwrap().trim_start_matches("0x"),
-        );
+        let val = std::env::var("EXECUTOR_ADDRESS").unwrap_or_else(|_| "0xInvalidAddress".into());
+        let result = hex::decode(val.trim_start_matches("0x"));
         assert!(result.is_err(), "Invalid hex address should fail to decode");
 
         std::env::remove_var("EXECUTOR_ADDRESS");

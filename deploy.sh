@@ -29,7 +29,7 @@ export RPC_URL="$ARBITRUM_SEPOLIA_RPC"
 CHAIN_ID=421614
 
 # Contract configuration
-CONTRACT_NAME="ArbitrageExecutorYul"
+CONTRACT_NAME="ArbitrageExecutorTwoLeg"
 MIN_PROFIT_WEI="1000000000000000"  # 0.001 ETH minimum profit
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ deploy_contract() {
     DEPLOY_OUTPUT=$(forge create --rpc-url "$ARBITRUM_SEPOLIA_RPC" \
         --chain-id "$CHAIN_ID" \
         --private-key "$PRIVATE_KEY" \
-        src/contracts/ArbitrageExecutorYul.sol:ArbitrageExecutorYul \
+        contracts/ArbitrageExecutorTwoLeg.sol:ArbitrageExecutorTwoLeg \
         --constructor-args "$MIN_PROFIT_WEI" \
         2>&1)
     

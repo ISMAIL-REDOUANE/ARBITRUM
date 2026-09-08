@@ -53,12 +53,10 @@ contract ArbitrageExecutorYul {
     /// @param pool Uni V3 pool address
     /// @param pathEncoded Encoded swap path (tokenOut, fee, recipient)
     /// @return profit Net profit in wei
-    function execute(
-        address loanToken,
-        uint256 loanAmount,
-        address pool,
-        bytes calldata pathEncoded
-    ) external returns (uint256 profit) {
+    function execute(address loanToken, uint256 loanAmount, address pool, bytes calldata pathEncoded)
+        external
+        returns (uint256 profit)
+    {
         assembly {
             // ═══════════════════════════════════════════════════════════════
             // STEP 1: PARSE INPUTS FROM CALLDATA VIA BITWISE (no ABI decode)
@@ -72,22 +70,22 @@ contract ArbitrageExecutorYul {
             mstore(0x00, 0x8c9b2d8300000000000000000000000000000000000000000000000000000000)
 
             // tokens array (offset 0x04)
-            mstore(0x24, 1)                      // array length = 1
-            mstore(0x44, loanToken)             // tokens[0]
+            mstore(0x24, 1) // array length = 1
+            mstore(0x44, loanToken) // tokens[0]
 
             // amounts array (offset 0x24) - reused scratch
-            mstore(0x64, 1)                     // array length = 1
-            mstore(0x84, loanAmount)            // amounts[0]
+            mstore(0x64, 1) // array length = 1
+            mstore(0x84, loanAmount) // amounts[0]
 
             // fees array (offset 0x44)
-            mstore(0xa4, 1)                     // array length = 1
-            mstore(0xc4, 0)                    // fee = 0
+            mstore(0xa4, 1) // array length = 1
+            mstore(0xc4, 0) // fee = 0
 
             // userData header (offset 0x64)
-            mstore(0xe4, address())             // initiator
-            mstore(0x104, loanToken)           // loanToken
-            mstore(0x124, loanAmount)          // loanAmount
-            mstore(0x144, pool)                // pool
+            mstore(0xe4, address()) // initiator
+            mstore(0x104, loanToken) // loanToken
+            mstore(0x124, loanAmount) // loanAmount
+            mstore(0x144, pool) // pool
 
             // Copy pathEncoded to scratch after userData header
             // pathEncoded.offset at calldata 0xe4, pathEncoded.length at 0x104
@@ -102,15 +100,7 @@ contract ArbitrageExecutorYul {
 
             // userData pointer at 0x64
             // Call Balancer Vault: selector at 0x00, 0xa4 bytes of calldata
-            let success := call(
-                gas(),
-                BALANCER_VAULT,
-                0,
-                0x00,
-                0xa4,
-                0x00,
-                0x20
-            )
+            let success := call(gas(), BALANCER_VAULT, 0, 0x00, 0xa4, 0x00, 0x20)
 
             // Return profit
             if success {
@@ -153,16 +143,8 @@ contract ArbitrageExecutorYul {
             // GET BALANCE BEFORE (reuse scratch 0x00-0x20)
             // ═══════════════════════════════════════════════════════════════
             mstore(0x00, loanToken)
-            mstore(0x20, 0)                      // balanceOf placeholder
-            let success := call(
-                gas(),
-                loanToken,
-                0,
-                0x00,
-                0x40,
-                0x00,
-                0x20
-            )
+            mstore(0x20, 0) // balanceOf placeholder
+            let success := call(gas(), loanToken, 0, 0x00, 0x40, 0x00, 0x20)
             let balBefore := mload(0x00)
 
             // ═══════════════════════════════════════════════════════════════
@@ -213,15 +195,7 @@ contract ArbitrageExecutorYul {
             // ═══════════════════════════════════════════════════════════════
             mstore(0x00, 0x78c7a8f7000000000000000000000000000000000000000000000000000000)
 
-            success := call(
-                gas(),
-                UNISWAP_V3_ROUTER,
-                0,
-                0x00,
-                0x120,
-                0x00,
-                0x20
-            )
+            success := call(gas(), UNISWAP_V3_ROUTER, 0, 0x00, 0x120, 0x00, 0x20)
 
             // Zero-gas revert on swap failure
             if iszero(success) { revert(0, 0) }

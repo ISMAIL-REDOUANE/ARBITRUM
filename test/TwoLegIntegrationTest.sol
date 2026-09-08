@@ -47,8 +47,15 @@ contract TwoLegIntegrationTest is Test {
             leg2Data
         );
 
-        (address decInit, address decLoan, uint256 decAmt, address decLeg1, address decLeg2, bytes memory decLeg1D, bytes memory decLeg2D) =
-            abi.decode(userData, (address, address, uint256, address, address, bytes, bytes));
+        (
+            address decInit,
+            address decLoan,
+            uint256 decAmt,
+            address decLeg1,
+            address decLeg2,
+            bytes memory decLeg1D,
+            bytes memory decLeg2D
+        ) = abi.decode(userData, (address, address, uint256, address, address, bytes, bytes));
 
         assertEq(decInit, address(this));
         assertEq(decLoan, address(0xaf88d065e77c8cC2239327C5EDb3A432268e5831));
@@ -64,8 +71,7 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsNonBalancer() public {
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
         );
 
         address[] memory tokens = new address[](1);
@@ -85,8 +91,7 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsWrongTokenLength() public {
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
         );
 
         address[] memory tokens = new address[](0);
@@ -105,8 +110,7 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsWrongAmountsLength() public {
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
         );
 
         address[] memory tokens = new address[](1);
@@ -127,8 +131,7 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsTokenMismatch() public {
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
         );
 
         address[] memory tokens = new address[](1);
@@ -148,8 +151,7 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsAmountMismatch() public {
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
         );
 
         address[] memory tokens = new address[](1);
@@ -169,8 +171,7 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_CannotBeCalledByEOA() public {
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
         );
 
         address[] memory tokens = new address[](1);
@@ -189,8 +190,7 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_CannotBeCalledByArbitraryContract() public {
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), bytes(""), bytes("")
         );
 
         address[] memory tokens = new address[](1);
@@ -210,9 +210,7 @@ contract TwoLegIntegrationTest is Test {
     // TEST 9: Malformed userData is rejected
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsMalformedUserData() public {
-        bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT
-        );
+        bytes memory userData = abi.encode(initiator, address(testToken), LOAN_AMOUNT);
 
         address[] memory tokens = new address[](1);
         tokens[0] = address(testToken);
@@ -255,23 +253,32 @@ contract TwoLegIntegrationTest is Test {
         return legData;
     }
 
-
     // ═══════════════════════════════════════════════════════════════════════════
     // TEST 10: Leg1 rejects wrong selector
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsLeg1WrongSelector() public {
-        // Build leg1Data with wrong selector - recipient must be executor
-        bytes memory leg1Data = _buildLegData(address(testToken), address(0x1234567890123456789012345678901234567890), address(executor));
-        leg1Data[0] = 0x00; // Corrupt the selector
+        address tokenOut = address(0x1234567890123456789012345678901234567890);
+        bytes memory leg1Data = _buildLegData(address(testToken), tokenOut, address(executor));
+        leg1Data[0] = 0x00;
         leg1Data[1] = 0x00;
         leg1Data[2] = 0x00;
         leg1Data[3] = 0x00;
 
-        bytes memory leg2Data = _buildLegData(address(0x1234567890123456789012345678901234567890), address(testToken), address(executor));
+        bytes memory leg2Data = _buildLegData(tokenOut, address(testToken), address(executor));
+
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, address(testToken), tokenOut, uint24(500)),
+            abi.encode(makeAddr("leg1"))
+        );
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenOut, address(testToken), uint24(500)),
+            abi.encode(makeAddr("leg2"))
+        );
 
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -290,14 +297,24 @@ contract TwoLegIntegrationTest is Test {
     // TEST 11: Leg1 rejects wrong tokenIn
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsLeg1WrongTokenIn() public {
-        // Build leg1Data with WRONG tokenIn (not the loan token)
         address wrongToken = makeAddr("wrongToken");
-        bytes memory leg1Data = _buildLegData(wrongToken, address(0x1234567890123456789012345678901234567890), address(executor));
-        bytes memory leg2Data = _buildLegData(address(0x1234567890123456789012345678901234567890), address(testToken), address(executor));
+        address tokenOut = address(0x1234567890123456789012345678901234567890);
+        bytes memory leg1Data = _buildLegData(wrongToken, tokenOut, address(executor));
+        bytes memory leg2Data = _buildLegData(tokenOut, address(testToken), address(executor));
+
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, wrongToken, tokenOut, uint24(500)),
+            abi.encode(makeAddr("leg1"))
+        );
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenOut, address(testToken), uint24(500)),
+            abi.encode(makeAddr("leg2"))
+        );
 
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -317,14 +334,25 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsLeg1WrongRecipient() public {
         testToken.mint(address(executor), LOAN_AMOUNT);
+        address tokenOut = address(0x1234567890123456789012345678901234567890);
         // Build leg1Data with wrong recipient (not executor)
         address wrongRecipient = makeAddr("wrongRecipient");
-        bytes memory leg1Data = _buildLegData(address(testToken), address(0x1234567890123456789012345678901234567890), wrongRecipient);
-        bytes memory leg2Data = _buildLegData(address(0x1234567890123456789012345678901234567890), address(testToken), address(executor));
+        bytes memory leg1Data = _buildLegData(address(testToken), tokenOut, wrongRecipient);
+        bytes memory leg2Data = _buildLegData(tokenOut, address(testToken), address(executor));
+
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, address(testToken), tokenOut, uint24(500)),
+            abi.encode(makeAddr("leg1"))
+        );
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenOut, address(testToken), uint24(500)),
+            abi.encode(makeAddr("leg2"))
+        );
 
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -344,18 +372,29 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsLeg2WrongSelector() public {
         testToken.mint(address(executor), LOAN_AMOUNT);
-        bytes memory leg1Data = _buildLegData(address(testToken), address(0x1234567890123456789012345678901234567890), address(executor));
+        address tokenOut = address(0x1234567890123456789012345678901234567890);
+        bytes memory leg1Data = _buildLegData(address(testToken), tokenOut, address(executor));
 
         // Build leg2Data with wrong selector
-        bytes memory leg2Data = _buildLegData(address(0x1234567890123456789012345678901234567890), address(testToken), address(executor));
+        bytes memory leg2Data = _buildLegData(tokenOut, address(testToken), address(executor));
         leg2Data[0] = 0xFF; // Corrupt the selector
         leg2Data[1] = 0xFF;
         leg2Data[2] = 0xFF;
         leg2Data[3] = 0xFF;
 
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, address(testToken), tokenOut, uint24(500)),
+            abi.encode(makeAddr("leg1"))
+        );
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenOut, address(testToken), uint24(500)),
+            abi.encode(makeAddr("leg2"))
+        );
+
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -383,9 +422,19 @@ contract TwoLegIntegrationTest is Test {
         // Leg2's tokenIn is tokenY, but should be tokenX (Leg1's output)
         bytes memory leg2Data = _buildLegData(tokenY, address(testToken), address(executor));
 
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, address(testToken), tokenX, uint24(500)),
+            abi.encode(makeAddr("leg1"))
+        );
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenY, address(testToken), uint24(500)),
+            abi.encode(makeAddr("leg2"))
+        );
+
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -405,15 +454,26 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsLeg2WrongRecipient() public {
         testToken.mint(address(executor), LOAN_AMOUNT);
-        bytes memory leg1Data = _buildLegData(address(testToken), address(0x1234567890123456789012345678901234567890), address(executor));
+        address tokenOut = address(0x1234567890123456789012345678901234567890);
+        bytes memory leg1Data = _buildLegData(address(testToken), tokenOut, address(executor));
 
         // Build leg2Data with wrong recipient
         address wrongRecipient = makeAddr("wrongRecipient");
-        bytes memory leg2Data = _buildLegData(address(0x1234567890123456789012345678901234567890), address(testToken), wrongRecipient);
+        bytes memory leg2Data = _buildLegData(tokenOut, address(testToken), wrongRecipient);
+
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, address(testToken), tokenOut, uint24(500)),
+            abi.encode(makeAddr("leg1"))
+        );
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, tokenOut, address(testToken), uint24(500)),
+            abi.encode(makeAddr("leg2"))
+        );
 
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -432,13 +492,13 @@ contract TwoLegIntegrationTest is Test {
     // TEST 16: Leg1 rejects too short calldata
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsLeg1TooShort() public {
-        // Build leg1Data that is too short (less than 196 bytes)
+        // Build leg1Data that is too short
         bytes memory leg1Data = bytes("too short");
-        bytes memory leg2Data = _buildLegData(address(0x1234567890123456789012345678901234567890), address(testToken), address(executor));
+        address tokenOut = address(0x1234567890123456789012345678901234567890);
+        bytes memory leg2Data = _buildLegData(tokenOut, address(testToken), address(executor));
 
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -449,7 +509,7 @@ contract TwoLegIntegrationTest is Test {
         feeAmounts[0] = LOAN_AMOUNT / 1000;
 
         vm.prank(REAL_BALANCER_VAULT);
-        vm.expectRevert(bytes("LEG1_TOO_SHORT"));
+        vm.expectRevert(bytes("LEG1_BAD_LENGTH"));
         executor.receiveFlashLoan(tokens, amounts, feeAmounts, userData);
     }
 
@@ -458,13 +518,19 @@ contract TwoLegIntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
     function testCallback_RejectsLeg2TooShort() public {
         testToken.mint(address(executor), LOAN_AMOUNT);
-        bytes memory leg1Data = _buildLegData(address(testToken), address(0x1234567890123456789012345678901234567890), address(executor));
-        // Build leg2Data that is too short (less than 196 bytes)
+        address tokenOut = address(0x1234567890123456789012345678901234567890);
+        bytes memory leg1Data = _buildLegData(address(testToken), tokenOut, address(executor));
+        // Build leg2Data that is too short
         bytes memory leg2Data = bytes("too short");
 
+        vm.mockCall(
+            0x1F98431c8aD98523631AE4a59f267346ea31F984,
+            abi.encodeWithSelector(IUniswapV3Factory.getPool.selector, address(testToken), tokenOut, uint24(500)),
+            abi.encode(makeAddr("leg1"))
+        );
+
         bytes memory userData = abi.encode(
-            initiator, address(testToken), LOAN_AMOUNT,
-            makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
+            initiator, address(testToken), LOAN_AMOUNT, makeAddr("leg1"), makeAddr("leg2"), leg1Data, leg2Data
         );
 
         address[] memory tokens = new address[](1);
@@ -475,7 +541,7 @@ contract TwoLegIntegrationTest is Test {
         feeAmounts[0] = LOAN_AMOUNT / 1000;
 
         vm.prank(REAL_BALANCER_VAULT);
-        vm.expectRevert(bytes("LEG2_TOO_SHORT"));
+        vm.expectRevert(bytes("LEG2_BAD_LENGTH"));
         executor.receiveFlashLoan(tokens, amounts, feeAmounts, userData);
     }
 }

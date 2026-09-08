@@ -390,27 +390,27 @@ mod tests {
         assert_eq!(&cd[leg1_len_offset..leg1_len_offset + 32],
                    &u256_to_bytes(LEG_DATA_LEN as u128));
 
-        // leg1Data content: selector + fields
+        // leg1Data content: selector + fields (228 bytes, no struct offset)
         let leg1 = &cd[leg1_len_offset + 32..leg1_len_offset + 32 + LEG_DATA_LEN];
         assert_eq!(&leg1[0..4], &[0x04, 0xe4, 0x5a, 0xaf]);
-        // tokenIn == loanToken
-        assert_eq!(&leg1[4+12..4+32], &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
-        // tokenOut == WETH
-        assert_eq!(&leg1[36+12..36+32], &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]);
+        // tokenIn == loanToken (at [4..36])
+        assert_eq!(&leg1[4+12..36], &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
+        // tokenOut == WETH (at [36..68])
+        assert_eq!(&leg1[36+12..68], &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]);
         // fee == 500, right-aligned in the 32-byte word [68..100]
         assert_eq!(&leg1[68..96], &[0u8; 28]);
         assert_eq!(&leg1[96..100], &500u32.to_be_bytes());
-        // recipient == executor mirror address
-        assert_eq!(&leg1[100+12..100+32], &hex::decode("DEADBEEF00000000000000000000000000000001").unwrap()[..]);
-        // amountIn == 1_000_000
+        // recipient == executor mirror address (at [100..132])
+        assert_eq!(&leg1[100+12..132], &hex::decode("DEADBEEF00000000000000000000000000000001").unwrap()[..]);
+        // amountIn == 1_000_000 (at [132..164])
         assert_eq!(&leg1[132+16..164], &1_000_000u128.to_be_bytes());
-        // amountOutMinimum == 900_000
+        // amountOutMinimum == 900_000 (at [164..196])
         assert_eq!(&leg1[164+16..196], &900_000u128.to_be_bytes());
-        // sqrtPriceLimit == 0
+        // sqrtPriceLimit == 0 (at [196..228])
         assert_eq!(&leg1[196..228], &[0u8; 32]);
-        // 32-byte zero padding after the 260-byte leg data
-        assert_eq!(&cd[leg1_len_offset + 32 + LEG_DATA_LEN..leg1_len_offset + 32 + LEG_DATA_LEN + 24],
-                   &[0u8; 24]);
+        // 32-byte zero padding after the 228-byte leg data
+        assert_eq!(&cd[leg1_len_offset + 32 + LEG_DATA_LEN..leg1_len_offset + 32 + LEG_DATA_LEN + 28],
+                   &[0u8; 28]);
     }
 
     #[test]
@@ -460,15 +460,15 @@ mod tests {
 
         // tokenIn/tokenOut are at calldata-relative [4..36] / [36..68]
         // within each leg payload. Leg1: loan -> intermediate, Leg2: inter -> loan.
-        assert_eq!(&cd[leg1_start + 4 + 12..leg1_start + 4 + 32],
+        assert_eq!(&cd[leg1_start + 4 + 12..leg1_start + 36],
                    &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
-        assert_eq!(&cd[leg1_start + 36 + 12..leg1_start + 36 + 32],
+        assert_eq!(&cd[leg1_start + 36 + 12..leg1_start + 68],
                    &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]);
 
         // Leg2: tokenIn = WETH, tokenOut = USDC
-        assert_eq!(&cd[leg2_start + 4 + 12..leg2_start + 4 + 32],
+        assert_eq!(&cd[leg2_start + 4 + 12..leg2_start + 36],
                    &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]);
-        assert_eq!(&cd[leg2_start + 36 + 12..leg2_start + 36 + 32],
+        assert_eq!(&cd[leg2_start + 36 + 12..leg2_start + 68],
                    &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
     }
 
@@ -582,8 +582,8 @@ mod tests {
     // ──────────────────────────────────────────────────────────────────────────
 
     /// AUDIT #7: Simulate what the Solidity contract's _validateAndDecodeLeg1 does.
-    /// The executor requires: selector matches, struct offset == 0x20,
-    /// tokenIn == loanToken, amountOutMin > 0, recipient == address(this).
+    /// The executor requires: selector matches, tokenIn == loanToken,
+    /// amountOutMin > 0, recipient == address(this).
     fn mock_validate_leg1(leg_data: &[u8], loan_token: &str) -> Vec<String> {
         let mut errors = Vec::new();
 
