@@ -25,8 +25,7 @@ use crate::error::{ArbitrageError, Result};
 use revm::db::in_memory_db::CacheDB;
 use revm::db::DatabaseRef;
 use revm::primitives::{
-    AccountInfo, Address, Bytecode, B256, SpecId, TransactTo, U256,
-    KECCAK_EMPTY,
+    AccountInfo, Address, Bytecode, SpecId, TransactTo, B256, KECCAK_EMPTY, U256,
 };
 use revm::EVM;
 use std::sync::Arc;
@@ -130,10 +129,9 @@ impl DatabaseRef for StateProviderCache {
     }
 
     fn storage(&self, address: Address, index: U256) -> std::result::Result<U256, Self::Error> {
-        self.storage
-            .get(&(address, index))
-            .copied()
-            .ok_or_else(|| ArbitrageError::CacheDb(format!("Missing storage: {:?}[{:?}]", address, index)))
+        self.storage.get(&(address, index)).copied().ok_or_else(|| {
+            ArbitrageError::CacheDb(format!("Missing storage: {:?}[{:?}]", address, index))
+        })
     }
 
     fn block_hash(&self, number: U256) -> std::result::Result<B256, Self::Error> {
@@ -153,7 +151,9 @@ pub struct RevmSimulator {
 impl RevmSimulator {
     pub fn new(rpc_endpoint: &str) -> Self {
         Self {
-            cachedb: Arc::new(parking_lot::RwLock::new(CacheDB::new(StateProviderCache::new()))),
+            cachedb: Arc::new(parking_lot::RwLock::new(CacheDB::new(
+                StateProviderCache::new(),
+            ))),
             rpc_endpoint: rpc_endpoint.to_string(),
             cached_snapshot: parking_lot::RwLock::new(None),
         }
@@ -274,7 +274,14 @@ impl RevmSimulator {
         let (block, caller_address) = {
             let guard = self.cached_snapshot.read();
             match guard.as_ref() {
-                Some(snapshot) => (snapshot.block.clone(), snapshot.accounts.first().map(|(a, _)| *a).unwrap_or_else(|| Address::ZERO)),
+                Some(snapshot) => (
+                    snapshot.block.clone(),
+                    snapshot
+                        .accounts
+                        .first()
+                        .map(|(a, _)| *a)
+                        .unwrap_or_else(|| Address::ZERO),
+                ),
                 None => {
                     return SimpleCallResult {
                         success: false,
@@ -359,7 +366,10 @@ impl RevmSimulator {
     }
 
     pub fn get_block_number(&self) -> Option<u64> {
-        self.cached_snapshot.read().as_ref().map(|s| s.block.block_number)
+        self.cached_snapshot
+            .read()
+            .as_ref()
+            .map(|s| s.block.block_number)
     }
 }
 
@@ -380,9 +390,8 @@ fn selector_bytes(selector: &str) -> [u8; 4] {
 
 fn parse_address(s: &str) -> Result<Address> {
     let hex_str = s.trim_start_matches("0x");
-    let bytes = hex::decode(hex_str).map_err(|e| {
-        ArbitrageError::Encoding(format!("Invalid hex in address '{}': {}", s, e))
-    })?;
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| ArbitrageError::Encoding(format!("Invalid hex in address '{}': {}", s, e)))?;
     if bytes.len() != 20 {
         return Err(ArbitrageError::Encoding(format!(
             "Invalid address length {} for '{}' - expected 20 bytes",
@@ -410,11 +419,9 @@ fn parse_uint256_abidevice(data: &[u8]) -> Result<u64> {
     }
 
     let bytes: [u8; 32] = value.to_be_bytes();
-    Ok(u64::from_be_bytes(
-        bytes[24..].try_into().map_err(|_| {
-            ArbitrageError::Encoding("Failed to convert uint256 to u64".to_string())
-        })?,
-    ))
+    Ok(u64::from_be_bytes(bytes[24..].try_into().map_err(
+        |_| ArbitrageError::Encoding("Failed to convert uint256 to u64".to_string()),
+    )?))
 }
 
 fn parse_u256_hex(s: &str) -> Result<U256> {
@@ -427,9 +434,8 @@ fn parse_u256_hex(s: &str) -> Result<U256> {
     } else {
         hex_str.to_string()
     };
-    let bytes = hex::decode(&hex_str).map_err(|e| {
-        ArbitrageError::Encoding(format!("Invalid hex: {}", e))
-    })?;
+    let bytes = hex::decode(&hex_str)
+        .map_err(|e| ArbitrageError::Encoding(format!("Invalid hex: {}", e)))?;
     if bytes.len() > 32 {
         return Err(ArbitrageError::Encoding(
             "Hex value exceeds 32 bytes".to_string(),
@@ -458,21 +464,27 @@ fn parse_revert_reason(data: &[u8]) -> Option<String> {
 
             if data.len() >= offset + 32 + len {
                 return Some(
-                    String::from_utf8_lossy(&data[offset + 32..offset + 32 + len])
-                        .to_string(),
+                    String::from_utf8_lossy(&data[offset + 32..offset + 32 + len]).to_string(),
                 );
             }
         }
     }
-    Some(format!("Revert: 0x{}", hex::encode(&data[..data.len().min(64)])))
+    Some(format!(
+        "Revert: 0x{}",
+        hex::encode(&data[..data.len().min(64)])
+    ))
 }
 
 fn extract_u64(value: &U256) -> std::result::Result<u64, ArbitrageError> {
     let bytes: [u8; 32] = value.to_be_bytes();
     if bytes[..24].iter().any(|&b| b != 0) {
-        return Err(ArbitrageError::Encoding("Value exceeds u64 max".to_string()));
+        return Err(ArbitrageError::Encoding(
+            "Value exceeds u64 max".to_string(),
+        ));
     }
-    Ok(u64::from_be_bytes(bytes[24..].try_into().map_err(|_| ArbitrageError::Encoding("Conversion error".to_string()))?))
+    Ok(u64::from_be_bytes(bytes[24..].try_into().map_err(
+        |_| ArbitrageError::Encoding("Conversion error".to_string()),
+    )?))
 }
 
 fn keccak256(data: &[u8]) -> B256 {
@@ -569,9 +581,7 @@ impl RpcClient {
         let block_num = result
             .get("number")
             .and_then(|v| v.as_str())
-            .map(|s| {
-                u64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(block_number)
-            })
+            .map(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(block_number))
             .unwrap_or(block_number);
 
         let timestamp = result
@@ -592,10 +602,7 @@ impl RpcClient {
             .map(|s| parse_u256_hex(s).unwrap_or(U256::from(10_000_000_000u64)))
             .unwrap_or(U256::from(10_000_000_000u64));
 
-        let hash_str = result
-            .get("hash")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0x0");
+        let hash_str = result.get("hash").and_then(|v| v.as_str()).unwrap_or("0x0");
         let hash_bytes = hex::decode(hash_str.trim_start_matches("0x")).unwrap_or_default();
         let mut block_hash_arr = [0u8; 32];
         block_hash_arr.copy_from_slice(&hash_bytes[..32]);
@@ -715,9 +722,7 @@ impl RpcClient {
         let nonce = nonce_body
             .get("result")
             .and_then(|v| v.as_str())
-            .map(|s| {
-                u64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(0)
-            })
+            .map(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(0))
             .unwrap_or(0);
 
         Ok(RpcAccountInfo {
@@ -742,7 +747,9 @@ mod tests {
         let mut cache = StateProviderCache::new();
         let addr = parse_address("0xaf88d065e77c8cC2239327C5EDb3A432268e5831").unwrap();
 
-        let bytecode = Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x60, 0x80, 0x60, 0x40]));
+        let bytecode = Bytecode::new_raw(revm::primitives::Bytes::from_static(&[
+            0x60, 0x80, 0x60, 0x40,
+        ]));
         let code_hash = bytecode.hash_slow();
 
         let info = AccountInfo {
@@ -831,7 +838,8 @@ mod tests {
 
     #[test]
     fn test_parse_u256_hex_valid() {
-        let result = parse_u256_hex("0x0000000000000000000000000000000000000000000000000000000000000fa0");
+        let result =
+            parse_u256_hex("0x0000000000000000000000000000000000000000000000000000000000000fa0");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), U256::from(0x0fa0));
     }
@@ -910,17 +918,14 @@ mod tests {
     fn test_parse_revert_reason_error_string() {
         let data = [
             0x08, 0xc3, 0x79, 0x0a, // Error(string) selector
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x20, // offset to string data
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // length
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         let reason = parse_revert_reason(&data);
         assert!(reason.is_some());
@@ -982,7 +987,9 @@ mod tests {
         let mut cache = StateProviderCache::new();
         let addr = parse_address("0xaf88d065e77c8cC2239327C5EDb3A432268e5831").unwrap();
 
-        let bytecode = Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x60, 0x80, 0x60, 0x40]));
+        let bytecode = Bytecode::new_raw(revm::primitives::Bytes::from_static(&[
+            0x60, 0x80, 0x60, 0x40,
+        ]));
         let code_hash = bytecode.hash_slow();
         let info = AccountInfo {
             balance: U256::from(1000000),
@@ -1030,7 +1037,9 @@ mod tests {
     #[test]
     fn test_state_snapshot_contains_account_info() {
         let addr = parse_address("0xaf88d065e77c8cC2239327C5EDb3A432268e5831").unwrap();
-        let bytecode = Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x60, 0x80, 0x60, 0x40]));
+        let bytecode = Bytecode::new_raw(revm::primitives::Bytes::from_static(&[
+            0x60, 0x80, 0x60, 0x40,
+        ]));
         let code_hash = bytecode.hash_slow();
 
         let snapshot = StateSnapshot {
@@ -1107,7 +1116,10 @@ mod tests {
     #[test]
     fn test_hydrate_requires_rpc_endpoint() {
         let simulator = RevmSimulator::default();
-        assert!(!simulator.is_state_loaded(), "Default simulator should not be loaded");
+        assert!(
+            !simulator.is_state_loaded(),
+            "Default simulator should not be loaded"
+        );
     }
 
     #[tokio::test]
@@ -1118,22 +1130,36 @@ mod tests {
 
         let simulator = RevmSimulator::new(&rpc_endpoint);
 
-        let snapshot = simulator.hydrate_from_rpc(None).await
+        let snapshot = simulator
+            .hydrate_from_rpc(None)
+            .await
             .expect("Failed to hydrate state from Arbitrum RPC");
 
-        assert!(simulator.is_state_loaded(), "State should be loaded after hydration");
+        assert!(
+            simulator.is_state_loaded(),
+            "State should be loaded after hydration"
+        );
         assert!(snapshot.block.block_number > 0);
-        assert!(snapshot.accounts.len() >= 3, "Should have loaded Balancer + Uniswap + USDC accounts");
+        assert!(
+            snapshot.accounts.len() >= 3,
+            "Should have loaded Balancer + Uniswap + USDC accounts"
+        );
 
         let caller_address = TEST_CALLER;
         const TEST_GAS_BALANCE_WEI: u64 = 100_000_000_000_000_000_u64;
-        simulator.inject_balance(parse_address(caller_address).unwrap(), U256::from(TEST_GAS_BALANCE_WEI));
+        simulator.inject_balance(
+            parse_address(caller_address).unwrap(),
+            U256::from(TEST_GAS_BALANCE_WEI),
+        );
 
         println!("=== FORK SIMULATION STATE ===");
         println!("RPC: {}", rpc_endpoint);
         println!("Block: #{}", snapshot.block.block_number);
         println!("Chain ID: 42161");
-        println!("TEST_CALLER (injected): {} with balance {} wei (0.1 ETH)", TEST_CALLER, TEST_GAS_BALANCE_WEI);
+        println!(
+            "TEST_CALLER (injected): {} with balance {} wei (0.1 ETH)",
+            TEST_CALLER, TEST_GAS_BALANCE_WEI
+        );
         println!("State loaded: YES ({} accounts)", snapshot.accounts.len());
         println!("================================");
     }
@@ -1146,7 +1172,9 @@ mod tests {
 
         let simulator = RevmSimulator::new(&rpc_endpoint);
 
-        let _snapshot = simulator.hydrate_from_rpc(None).await
+        let _snapshot = simulator
+            .hydrate_from_rpc(None)
+            .await
             .expect("Failed to hydrate state from Arbitrum RPC");
 
         let weth_address = parse_address("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1")
@@ -1156,7 +1184,9 @@ mod tests {
 
         let result = simulator.execute_simple_call(
             weth_address,
-            hex::decode("70a08231").expect("Invalid balanceOf selector").as_slice(),
+            hex::decode("70a08231")
+                .expect("Invalid balanceOf selector")
+                .as_slice(),
         );
 
         println!("=== SIMPLE CALL RESULT ===");
@@ -1180,7 +1210,9 @@ mod tests {
         let simulator = RevmSimulator::new(&rpc_endpoint);
 
         let block_num = 210_000_000u64;
-        let snapshot = simulator.hydrate_from_rpc(Some(block_num)).await
+        let snapshot = simulator
+            .hydrate_from_rpc(Some(block_num))
+            .await
             .expect("Failed to hydrate state from Arbitrum RPC");
 
         assert_eq!(snapshot.block.block_number, block_num);
@@ -1196,10 +1228,13 @@ mod tests {
 
         let simulator = RevmSimulator::new(&rpc_endpoint);
 
-        let _snapshot = simulator.hydrate_from_rpc(None).await
+        let _snapshot = simulator
+            .hydrate_from_rpc(None)
+            .await
             .expect("Failed to hydrate state from Arbitrum RPC");
 
-        const EXECUTOR_BYTECODE: &str = include_str!("../../out/ArbitrageExecutorTwoLeg.sol/ArbitrageExecutorTwoLeg.json");
+        const EXECUTOR_BYTECODE: &str =
+            include_str!("../../out/ArbitrageExecutorTwoLeg.sol/ArbitrageExecutorTwoLeg.json");
         let json: serde_json::Value = serde_json::from_str(EXECUTOR_BYTECODE)
             .expect("Failed to parse executor bytecode JSON");
         let bytecode_hex = json["deployedBytecode"]["object"]
@@ -1208,7 +1243,8 @@ mod tests {
         let bytecode = hex::decode(bytecode_hex.trim_start_matches("0x"))
             .expect("Failed to decode bytecode hex");
 
-        simulator.load_executor_bytecode(bytecode)
+        simulator
+            .load_executor_bytecode(bytecode)
             .expect("Failed to load executor bytecode");
 
         simulator.inject_test_caller(U256::from(100_000_000_000_000_000_u64));
@@ -1219,7 +1255,10 @@ mod tests {
         );
 
         println!("=== LEVEL 2 EXECUTOR PATH TEST ===");
-        println!("[1] TEST_CALLER -> EXECUTOR: {}", if result.success { "PASS" } else { "FAIL" });
+        println!(
+            "[1] TEST_CALLER -> EXECUTOR: {}",
+            if result.success { "PASS" } else { "FAIL" }
+        );
         println!("    Gas used: {}", result.gas_used);
         println!("    Revert reason: {:?}", result.revert_reason);
         println!("====================================");
@@ -1228,12 +1267,13 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_a_tinyping_revm_smoke() {
-        let rpc_endpoint = std::env::var("BLOXROUTE_RPC")
-            .expect("BLOXROUTE_RPC must be set");
+        let rpc_endpoint = std::env::var("BLOXROUTE_RPC").expect("BLOXROUTE_RPC must be set");
 
         let simulator = RevmSimulator::new(&rpc_endpoint);
 
-        let _snapshot = simulator.hydrate_from_rpc(None).await
+        let _snapshot = simulator
+            .hydrate_from_rpc(None)
+            .await
             .expect("Failed to hydrate state");
 
         // Fallback-based TinyPing (17 bytes) - returns 1 only with empty calldata
@@ -1248,7 +1288,8 @@ mod tests {
 
         {
             let executor_addr = parse_address(TINYPING_ADDRESS).unwrap();
-            let bytecode_obj = Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&bytecode));
+            let bytecode_obj =
+                Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&bytecode));
             let account_info = AccountInfo {
                 balance: U256::ZERO,
                 nonce: 1,
@@ -1266,9 +1307,15 @@ mod tests {
         );
 
         println!("=== TEST A: TinyPing REVM Smoke ===");
-        println!("[A1] TinyPing fallback (empty calldata): {}", if result_empty.success { "PASS" } else { "FAIL" });
+        println!(
+            "[A1] TinyPing fallback (empty calldata): {}",
+            if result_empty.success { "PASS" } else { "FAIL" }
+        );
         println!("     Gas used: {}", result_empty.gas_used);
-        println!("     Return data: {:?}", &result_empty.return_data[..4.min(result_empty.return_data.len())]);
+        println!(
+            "     Return data: {:?}",
+            &result_empty.return_data[..4.min(result_empty.return_data.len())]
+        );
         println!("     Revert: {:?}", result_empty.revert_reason);
 
         // Test with 4 bytes of calldata (likely to panic)
@@ -1277,46 +1324,62 @@ mod tests {
             &[0x01, 0x02, 0x03, 0x04], // 4 bytes calldata
         );
 
-        println!("[A2] TinyPing fallback (4 bytes calldata): {}", if result_4bytes.success { "PASS" } else { "FAIL" });
+        println!(
+            "[A2] TinyPing fallback (4 bytes calldata): {}",
+            if result_4bytes.success {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
         println!("     Gas used: {}", result_4bytes.gas_used);
         println!("     Revert: {:?}", result_4bytes.revert_reason);
         println!("===================================");
 
         if !result_empty.success {
-            panic!("TinyPing smoke test (empty calldata) failed: {:?}", result_empty.revert_reason);
+            panic!(
+                "TinyPing smoke test (empty calldata) failed: {:?}",
+                result_empty.revert_reason
+            );
         }
     }
 
     #[tokio::test]
     #[ignore]
     async fn test_b_executor_revm_smoke() {
-        let rpc_endpoint = std::env::var("BLOXROUTE_RPC")
-            .expect("BLOXROUTE_RPC must be set");
+        let rpc_endpoint = std::env::var("BLOXROUTE_RPC").expect("BLOXROUTE_RPC must be set");
 
         let simulator = RevmSimulator::new(&rpc_endpoint);
 
-        let _snapshot = simulator.hydrate_from_rpc(None).await
+        let _snapshot = simulator
+            .hydrate_from_rpc(None)
+            .await
             .expect("Failed to hydrate state");
 
-        const EXECUTOR_BYTECODE: &str = include_str!("../../out/ArbitrageExecutorTwoLeg.sol/ArbitrageExecutorTwoLeg.json");
-        let json: serde_json::Value = serde_json::from_str(EXECUTOR_BYTECODE)
-            .expect("Failed to parse executor JSON");
+        const EXECUTOR_BYTECODE: &str =
+            include_str!("../../out/ArbitrageExecutorTwoLeg.sol/ArbitrageExecutorTwoLeg.json");
+        let json: serde_json::Value =
+            serde_json::from_str(EXECUTOR_BYTECODE).expect("Failed to parse executor JSON");
         let bytecode_hex = json["deployedBytecode"]["object"]
             .as_str()
             .expect("No bytecode");
-        let full_bytecode = hex::decode(bytecode_hex.trim_start_matches("0x"))
-            .expect("Failed to decode bytecode");
+        let full_bytecode =
+            hex::decode(bytecode_hex.trim_start_matches("0x")).expect("Failed to decode bytecode");
 
         // Extract runtime bytecode (before solc metadata marker)
         // solc appends: a2646970667358221220 + ipfs_hash + 64736f6c63430008220033
         // The metadata is appended after the runtime bytecode
         let metadata_marker = hex::decode("64736f6c63430008220033").unwrap();
-        let solc_metadata_pos = full_bytecode.windows(metadata_marker.len())
+        let solc_metadata_pos = full_bytecode
+            .windows(metadata_marker.len())
             .position(|w| w == metadata_marker.as_slice())
             .unwrap_or(full_bytecode.len());
         let bytecode = full_bytecode[..solc_metadata_pos].to_vec();
 
-        println!("Executor bytecode length: {} bytes (runtime only, stripped solc metadata)", bytecode.len());
+        println!(
+            "Executor bytecode length: {} bytes (runtime only, stripped solc metadata)",
+            bytecode.len()
+        );
 
         const EXECUTOR_ADDRESS: &str = "0xDEADBEEF00000000000000000000000000000001";
 
@@ -1324,7 +1387,8 @@ mod tests {
 
         {
             let executor_addr = parse_address(EXECUTOR_ADDRESS).unwrap();
-            let bytecode_obj = Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&bytecode));
+            let bytecode_obj =
+                Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&bytecode));
             let account_info = AccountInfo {
                 balance: U256::ZERO,
                 nonce: 1,
@@ -1340,7 +1404,8 @@ mod tests {
 
         {
             let executor_addr = parse_address(EXECUTOR_ADDRESS).unwrap();
-            let bytecode_obj = Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&bytecode));
+            let bytecode_obj =
+                Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&bytecode));
             let account_info = AccountInfo {
                 balance: U256::ZERO,
                 nonce: 1,
@@ -1358,7 +1423,10 @@ mod tests {
 
         println!("=== TEST B: Executor REVM Smoke ===");
         println!("[B1] Executor bytecode injection: PASS"); // Injection always works
-        println!("[B2] TEST_CALLER -> EXECUTOR: {}", if result.success { "PASS" } else { "FAIL" });
+        println!(
+            "[B2] TEST_CALLER -> EXECUTOR: {}",
+            if result.success { "PASS" } else { "FAIL" }
+        );
         println!("     Gas used: {}", result.gas_used);
         println!("     Revert: {:?}", result.revert_reason);
         println!("===================================");

@@ -5,9 +5,9 @@
 use crate::pool_discovery::TokenPair;
 use crate::types::PriceEvent;
 
+use parking_lot::RwLock;
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
-use parking_lot::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct TokenMapping {
@@ -88,7 +88,11 @@ struct PricePoint {
 
 impl PricePoint {
     fn new(price: f64, timestamp: u64, volume: f64) -> Self {
-        Self { price, timestamp, volume }
+        Self {
+            price,
+            timestamp,
+            volume,
+        }
     }
 }
 
@@ -108,7 +112,7 @@ impl LeadLagDetector {
             last_signal_time: RwLock::new(HashMap::new()),
         }
     }
-    
+
     fn default_mappings() -> Vec<TokenMapping> {
         vec![
             TokenMapping {
@@ -133,30 +137,34 @@ impl LeadLagDetector {
             },
         ]
     }
-    
+
     pub fn add_mapping(&self, mapping: TokenMapping) {
         let mut mappings = self.token_mappings.write();
         mappings.retain(|m| m.binance_symbol != mapping.binance_symbol);
         mappings.push(mapping);
     }
-    
+
     pub fn detect_movement(&self, event: &PriceEvent) -> Option<MovementDetection> {
         let symbol = &event.symbol;
         let price = event.price.parse::<f64>().ok()?;
         let timestamp = event.trade_time;
         let volume = event.quantity.parse::<f64>().ok()?;
-        
+
         {
             let mut history = self.price_history.write();
             let points = history.entry(symbol.clone()).or_default();
             points.push_back(PricePoint::new(price, timestamp, volume));
-            
+
             let cutoff = timestamp.saturating_sub(self.config.lookback_window_ms);
-            while points.front().map(|p| p.timestamp < cutoff).unwrap_or(false) {
+            while points
+                .front()
+                .map(|p| p.timestamp < cutoff)
+                .unwrap_or(false)
+            {
                 points.pop_front();
             }
         }
-        
+
         {
             let last_time = self.last_signal_time.read();
             if let Some(&last) = last_time.get(symbol) {
@@ -165,37 +173,37 @@ impl LeadLagDetector {
                 }
             }
         }
-        
+
         let history = self.price_history.read();
         let points = history.get(symbol)?;
-        
+
         if points.len() < 2 {
             return None;
         }
-        
+
         let first = &points[0];
         let last_pt = points.back()?;
-        
+
         let price_change_ratio = (last_pt.price - first.price) / first.price;
         let price_change_bps = price_change_ratio * 10000.0;
-        
+
         let time_delta_sec = (last_pt.timestamp - first.timestamp) as f64 / 1000.0;
         let velocity_bps_per_sec = if time_delta_sec > 0.0 {
             price_change_bps / time_delta_sec
         } else {
             0.0
         };
-        
+
         let acceleration = if points.len() >= 4 {
             let mid_idx = points.len() / 2;
             let p1 = points.front()?;
             let p2 = points.get(mid_idx)?;
             let p3 = points.get(mid_idx)?;
             let p4 = points.back()?;
-            
+
             let delta1 = p2.timestamp.saturating_sub(p1.timestamp);
             let delta2 = p4.timestamp.saturating_sub(p3.timestamp);
-            
+
             if delta1 > 0 && delta2 > 0 {
                 let change1 = (p2.price - p1.price) / p1.price * 10000.0;
                 let change2 = (p4.price - p3.price) / p3.price * 10000.0;
@@ -206,10 +214,10 @@ impl LeadLagDetector {
         } else {
             None
         };
-        
+
         let avg_volume: f64 = points.iter().map(|p| p.volume).sum::<f64>() / points.len() as f64;
         let volume_spike = last_pt.volume > avg_volume * self.config.volume_spike_multiplier;
-        
+
         let direction = if price_change_bps > self.config.price_change_threshold_bps {
             MovementDirection::Up
         } else if price_change_bps < -self.config.price_change_threshold_bps {
@@ -217,39 +225,39 @@ impl LeadLagDetector {
         } else {
             MovementDirection::Sideways
         };
-        
+
         let mut confidence = 0.5;
         confidence += (price_change_bps.abs() / 100.0).min(0.3);
-        
+
         if velocity_bps_per_sec.abs() > self.config.velocity_threshold_bps_per_sec {
             confidence += 0.1;
         }
-        
+
         if volume_spike {
             confidence += 0.1;
         }
-        
+
         if let Some(acc) = acceleration {
             if acc.abs() > self.config.acceleration_threshold_bps_per_sec2 {
                 confidence += 0.1;
             }
         }
-        
+
         confidence = confidence.min(1.0);
-        
+
         if confidence < self.config.min_confidence {
             return None;
         }
-        
+
         if !direction.is_significant(self.config.price_change_threshold_bps) {
             return None;
         }
-        
+
         {
             let mut last_time = self.last_signal_time.write();
             last_time.insert(symbol.clone(), timestamp);
         }
-        
+
         Some(MovementDetection {
             symbol: symbol.clone(),
             direction,
@@ -260,7 +268,7 @@ impl LeadLagDetector {
             timestamp,
         })
     }
-    
+
     pub fn get_affected_tokens(&self, movement: &MovementDetection) -> Vec<TokenMapping> {
         let mappings = self.token_mappings.read();
         mappings
@@ -269,14 +277,14 @@ impl LeadLagDetector {
             .cloned()
             .collect()
     }
-    
+
     pub fn get_token_pair(&self, mapping: &TokenMapping) -> TokenPair {
         TokenPair::new_hex(
             &mapping.arbitrum_token,
             "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
         )
     }
-    
+
     pub fn generate_signal(
         &self,
         movement: &MovementDetection,
@@ -320,7 +328,7 @@ mod tests {
     fn test_movement_detection() {
         let config = MovementConfig::default();
         let detector = LeadLagDetector::new(config);
-        
+
         let event = PriceEvent::new(
             "ETHUSDT".to_string(),
             "3500.50".to_string(),
@@ -328,7 +336,7 @@ mod tests {
             1699999999000,
             false,
         );
-        
+
         let detection = detector.detect_movement(&event);
         assert!(detection.is_none());
     }
@@ -337,10 +345,10 @@ mod tests {
     fn test_token_mappings() {
         let config = MovementConfig::default();
         let detector = LeadLagDetector::new(config);
-        
+
         let mappings = detector.token_mappings.read();
         assert!(!mappings.is_empty());
-        
+
         let eth_mapping = mappings.iter().find(|m| m.binance_symbol == "ETHUSDT");
         assert!(eth_mapping.is_some());
     }

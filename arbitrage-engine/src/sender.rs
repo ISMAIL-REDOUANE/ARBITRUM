@@ -21,7 +21,7 @@ impl Sender {
     pub fn new(state: Arc<SharedState>) -> Self {
         let base_rpc = state.config.chains.base.rpc_http_url.clone();
         let arb_rpc = state.config.chains.arbitrum.rpc_http_url.clone();
-        
+
         Self {
             state,
             base_rpc,
@@ -30,16 +30,16 @@ impl Sender {
             nonce_arb: 0,
         }
     }
-    
+
     pub async fn run(&mut self) -> Result<()> {
         tracing::info!("Sender thread started");
-        
+
         self.sync_nonces().await?;
-        
+
         while !self.state.is_shutdown() {
             if let Some(opp) = self.state.pop_opportunity() {
                 let start = Instant::now();
-                
+
                 match self.send_arbitrage(&opp).await {
                     Ok(tx_hash) => {
                         tracing::info!(
@@ -54,39 +54,36 @@ impl Sender {
                         self.state.stats.record_tx_failed();
                     }
                 }
-                
+
                 self.increment_nonce(opp.chain_id);
             } else {
                 tokio::task::yield_now().await;
             }
-            
+
             tokio::time::sleep(Duration::from_millis(
-                self.state.config.risk.trade_cooldown_ms
-            )).await;
+                self.state.config.risk.trade_cooldown_ms,
+            ))
+            .await;
         }
-        
+
         Ok(())
     }
-    
+
     async fn send_arbitrage(&self, opportunity: &ArbitrageOpportunity) -> Result<String> {
         let tx = self.build_transaction(opportunity)?;
-        
-        tracing::info!(
-            "Would send tx to: {} gas: {}",
-            tx.to,
-            tx.gas_limit
-        );
-        
+
+        tracing::info!("Would send tx to: {} gas: {}", tx.to, tx.gas_limit);
+
         Ok(format!("0x{:064x}", opportunity.timestamp))
     }
-    
+
     fn build_transaction(&self, opp: &ArbitrageOpportunity) -> Result<ArbitrageTx> {
         let contract_addr = match opp.chain_id {
             8453 => "0x0000000000000000000000000000000000000001",
             42161 => "0x0000000000000000000000000000000000000002",
             _ => return Err(ArbitrageError::Transaction("Unknown chain".to_string())),
         };
-        
+
         Ok(ArbitrageTx {
             to: contract_addr.to_string(),
             data: vec![0xa1, 0xf2, 0xf3, 0xd4],
@@ -98,7 +95,7 @@ impl Sender {
             max_fee: 500_000_000,
         })
     }
-    
+
     fn get_nonce(&self, chain_id: u64) -> u64 {
         match chain_id {
             8453 => self.nonce_base,
@@ -106,7 +103,7 @@ impl Sender {
             _ => 0,
         }
     }
-    
+
     fn increment_nonce(&mut self, chain_id: u64) {
         match chain_id {
             8453 => self.nonce_base += 1,
@@ -114,7 +111,7 @@ impl Sender {
             _ => {}
         }
     }
-    
+
     async fn sync_nonces(&mut self) -> Result<()> {
         tracing::info!("Nonce sync placeholder");
         Ok(())
@@ -123,20 +120,20 @@ impl Sender {
 
 pub fn spawn_sender(state: Arc<SharedState>) -> Result<tokio::task::JoinHandle<()>> {
     let mut sender = Sender::new(state);
-    
+
     let handle = tokio::spawn(async move {
         if let Err(e) = sender.run().await {
             tracing::error!("Sender error: {:?}", e);
         }
     });
-    
+
     Ok(handle)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_build_transaction() {
         let opp = ArbitrageOpportunity {
@@ -150,7 +147,7 @@ mod tests {
             chain_id: 8453,
             timestamp: 1699999999999,
         };
-        
+
         assert_eq!(opp.chain_id, 8453);
     }
 }

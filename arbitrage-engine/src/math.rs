@@ -22,6 +22,7 @@
 //! where SafetyBuffer ≈ $1-2 USD to capture micro-spreads
 
 use crate::types::PoolState;
+use revm::primitives::U256;
 
 pub const AAVE_V3_FLASH_LOAN_FEE_BPS: u64 = 5;
 pub const SAFETY_BUFFER_USD: f64 = 1.50;
@@ -60,7 +61,12 @@ impl ArbitrageMath {
         }
     }
 
-    pub fn with_tick_data(sqrt_price_x96: u128, tick_liquidity: u128, current_tick: i32, fee_tier_bps: u32) -> Self {
+    pub fn with_tick_data(
+        sqrt_price_x96: u128,
+        tick_liquidity: u128,
+        current_tick: i32,
+        fee_tier_bps: u32,
+    ) -> Self {
         Self {
             sqrt_price_x96,
             tick_liquidity,
@@ -142,7 +148,8 @@ impl ArbitrageMath {
         let _output_scale = 10u64.pow(output_token_decimals as u32);
 
         let max_input_wei = max_input_raw / input_scale * input_scale;
-        let estimated_output = self.apply_swap(max_input_wei, input_token_decimals, output_token_decimals);
+        let estimated_output =
+            self.apply_swap(max_input_wei, input_token_decimals, output_token_decimals);
 
         OptimalTradeSize {
             max_input_amount_wei: max_input_wei,
@@ -154,7 +161,7 @@ impl ArbitrageMath {
 
     #[inline(always)]
     pub fn apply_swap(&self, amount_in_wei: u64, in_decimals: u8, out_decimals: u8) -> u64 {
-        if amount_in_wei == 0 || self.tick_liquidity == 0 {
+        if amount_in_wei == 0 || self.tick_liquidity == 0 || self.sqrt_price_x96 == 0 {
             return 0;
         }
 
@@ -164,17 +171,23 @@ impl ArbitrageMath {
         let fee_multiplier = 1_000_000_u128.saturating_sub(self.fee_tier_bps as u128);
         let amount_in_after_fee = amount_in_scaled * fee_multiplier / 1_000_000;
 
-        let sqrt_p = (self.sqrt_price_x96 as f64) / (1u128 << 96) as f64;
-        let price = sqrt_p * sqrt_p; // Price ratio P = (sqrtPriceX96 / 2^96)^2
-        let amount_out = amount_in_after_fee as f64 * price;
+        let amount_in_u256 = U256::from(amount_in_after_fee);
+        let sqrt_price_u256 = U256::from(self.sqrt_price_x96);
+        let price_x192 = sqrt_price_u256.saturating_mul(sqrt_price_u256);
+        let amount_out_u256: U256 = (amount_in_u256.saturating_mul(price_x192)) >> 192;
+        let mut amount_out = u64::try_from(amount_out_u256).unwrap_or(u64::MAX);
 
-        let scale_diff = if out_decimals > in_decimals {
-            10u64.pow((out_decimals - in_decimals) as u32) as f64
-        } else {
-            1.0 / 10u64.pow((in_decimals - out_decimals) as u32) as f64
-        };
+        if out_decimals > in_decimals {
+            let scale = 10u64.pow((out_decimals - in_decimals) as u32);
+            amount_out = amount_out.saturating_mul(scale);
+        } else if in_decimals > out_decimals {
+            let scale = 10u64.pow((in_decimals - out_decimals) as u32);
+            if scale > 0 {
+                amount_out /= scale;
+            }
+        }
 
-        (amount_out * scale_diff) as u64
+        amount_out
     }
 
     pub fn calculate_friction(
@@ -183,7 +196,8 @@ impl ArbitrageMath {
         gas_price_gwei: u64,
         estimated_gas: u64,
     ) -> FrictionBreakdown {
-        let flash_loan_fee = (input_amount_wei as u128) * (AAVE_V3_FLASH_LOAN_FEE_BPS as u128) / 10000;
+        let flash_loan_fee =
+            (input_amount_wei as u128) * (AAVE_V3_FLASH_LOAN_FEE_BPS as u128) / 10000;
         // Uniswap V3 fee tiers are in hundredths of a bip (1,000,000 = 100%)
         let dex_fee = (input_amount_wei as u128) * (self.fee_tier_bps as u128) / 1_000_000;
         let gas_cost_wei = gas_price_gwei * estimated_gas;
@@ -197,9 +211,6 @@ impl ArbitrageMath {
             total_friction_wei: total,
         }
     }
-
-
-
 
     pub fn is_profitable(
         &self,
@@ -252,7 +263,7 @@ pub fn calculate_arbitrage_profit(
     let bought_amount = input_eth * buy_price;
     let sold_amount = input_eth * sell_price;
     let profit_eth = sold_amount - bought_amount;
-    
+
     (profit_eth * 10u64.pow(18) as f64) as u64
 }
 
@@ -302,44 +313,72 @@ mod tests {
         );
 
         let max_input = math.max_input_for_slippage(1_000_000_000_000_000_000u64, 10);
-        assert!(max_input <= 1_000_000_000_000_000_000u64, "Max input should not exceed output amount");
+        assert!(
+            max_input <= 1_000_000_000_000_000_000u64,
+            "Max input should not exceed output amount"
+        );
     }
     #[test]
     fn test_v3_fee_tiers_mathematical_accuracy() {
         let amount = 1_000_000_000_000_000_000u64; // 1 token
-        // Fee 500 = 0.05%
-        let math_500 = ArbitrageMath::with_tick_data(79228162514264337593543950336u128, 1_000_000_000_000_000_000u128, 0, 500);
+                                                   // Fee 500 = 0.05%
+        let math_500 = ArbitrageMath::with_tick_data(
+            79228162514264337593543950336u128,
+            1_000_000_000_000_000_000u128,
+            0,
+            500,
+        );
         let friction_500 = math_500.calculate_friction(amount, 0, 0);
         assert_eq!(friction_500.dex_swap_fee_wei, 500_000_000_000_000); // 0.05% of 1e18 = 5e14
 
         // Fee 1000 = 0.10%
-        let math_1000 = ArbitrageMath::with_tick_data(79228162514264337593543950336u128, 1_000_000_000_000_000_000u128, 0, 1000);
+        let math_1000 = ArbitrageMath::with_tick_data(
+            79228162514264337593543950336u128,
+            1_000_000_000_000_000_000u128,
+            0,
+            1000,
+        );
         let friction_1000 = math_1000.calculate_friction(amount, 0, 0);
         assert_eq!(friction_1000.dex_swap_fee_wei, 1_000_000_000_000_000); // 0.10% of 1e18 = 1e15
 
         // Fee 3000 = 0.30%
-        let math_3000 = ArbitrageMath::with_tick_data(79228162514264337593543950336u128, 1_000_000_000_000_000_000u128, 0, 3000);
+        let math_3000 = ArbitrageMath::with_tick_data(
+            79228162514264337593543950336u128,
+            1_000_000_000_000_000_000u128,
+            0,
+            3000,
+        );
         let friction_3000 = math_3000.calculate_friction(amount, 0, 0);
         assert_eq!(friction_3000.dex_swap_fee_wei, 3_000_000_000_000_000); // 0.30% of 1e18 = 3e15
 
         // Fee 10000 = 1.00%
-        let math_10000 = ArbitrageMath::with_tick_data(79228162514264337593543950336u128, 1_000_000_000_000_000_000u128, 0, 10000);
+        let math_10000 = ArbitrageMath::with_tick_data(
+            79228162514264337593543950336u128,
+            1_000_000_000_000_000_000u128,
+            0,
+            10000,
+        );
         let friction_10000 = math_10000.calculate_friction(amount, 0, 0);
         assert_eq!(friction_10000.dex_swap_fee_wei, 10_000_000_000_000_000); // 1.00% of 1e18 = 1e16
     }
 
-
     #[test]
     fn test_wei_to_usd() {
         let result = wei_to_usd(1_000_000_000_000_000_000u64, 18, 3500.0);
-        assert!((result - 3500.0).abs() < 1.0, "1 ETH at 3500 USD should be ~3500 USD");
+        assert!(
+            (result - 3500.0).abs() < 1.0,
+            "1 ETH at 3500 USD should be ~3500 USD"
+        );
     }
 
     #[test]
     fn test_usd_to_wei() {
         let result = usd_to_wei(3500.0, 18, 3500.0);
         let expected = 1_000_000_000_000_000_000u64;
-        assert!((result as i64 - expected as i64).abs() < 1_000_000_000, "3500 USD should be ~1 ETH worth");
+        assert!(
+            (result as i64 - expected as i64).abs() < 1_000_000_000,
+            "3500 USD should be ~1 ETH worth"
+        );
     }
 
     #[test]
@@ -352,7 +391,13 @@ mod tests {
         );
 
         let profit_wei = 100_000_000_000_000_000u64;
-        let is_profitable = math.is_profitable(profit_wei, 1_000_000_000_000_000_000u64, 50, 200_000, 3500.0);
+        let is_profitable = math.is_profitable(
+            profit_wei,
+            1_000_000_000_000_000_000u64,
+            50,
+            200_000,
+            3500.0,
+        );
         assert!(is_profitable);
     }
 

@@ -372,13 +372,12 @@ impl ReplayIterator {
                 self.buffer.clear();
             } else {
                 // Sort buffer deterministically by total order key
-                let mut records_with_order: Vec<(usize, L2Record)> = new_records
-                    .into_iter()
-                    .enumerate()
-                    .collect();
+                let mut records_with_order: Vec<(usize, L2Record)> =
+                    new_records.into_iter().enumerate().collect();
 
                 records_with_order.sort_by(|(idx_a, a), (idx_b, b)| {
-                    a.recv_ts_ns.cmp(&b.recv_ts_ns)
+                    a.recv_ts_ns
+                        .cmp(&b.recv_ts_ns)
                         .then_with(|| a.exchange.cmp(&b.exchange))
                         .then_with(|| a.symbol.cmp(&b.symbol))
                         .then_with(|| a.update_id.cmp(&b.update_id))
@@ -502,13 +501,12 @@ mod tests {
         ];
 
         // Sort using the same logic as ReplayIterator
-        let mut records_with_order: Vec<(usize, L2Record)> = records
-            .into_iter()
-            .enumerate()
-            .collect();
+        let mut records_with_order: Vec<(usize, L2Record)> =
+            records.into_iter().enumerate().collect();
 
         records_with_order.sort_by(|(idx_a, a), (idx_b, b)| {
-            a.recv_ts_ns.cmp(&b.recv_ts_ns)
+            a.recv_ts_ns
+                .cmp(&b.recv_ts_ns)
                 .then_with(|| a.exchange.cmp(&b.exchange))
                 .then_with(|| a.symbol.cmp(&b.symbol))
                 .then_with(|| a.update_id.cmp(&b.update_id))

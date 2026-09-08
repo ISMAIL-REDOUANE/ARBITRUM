@@ -98,8 +98,9 @@ fn padded_bytes_field_len(data_len: usize) -> usize {
 }
 
 fn push_address(out: &mut Vec<u8>, address_hex: &str) -> Result<()> {
-    let bytes = hex::decode(address_hex.trim_start_matches("0x"))
-        .map_err(|e| ArbitrageError::Encoding(format!("Invalid address hex '{}': {}", address_hex, e)))?;
+    let bytes = hex::decode(address_hex.trim_start_matches("0x")).map_err(|e| {
+        ArbitrageError::Encoding(format!("Invalid address hex '{}': {}", address_hex, e))
+    })?;
     if bytes.len() != 20 {
         return Err(ArbitrageError::Encoding(format!(
             "Invalid address length {} for '{}' - expected 20 bytes",
@@ -123,10 +124,7 @@ pub const LEG_DATA_LEN: usize = 4 + 7 * 32;
 /// The returned bytes are what the broadcaster sends to the deployed
 /// executor AND what the exact REVM simulation executes — the two are
 /// byte-for-byte identical by construction.
-pub fn build_two_leg_execute_calldata(
-    route: &TwoLegRoute,
-    _config: &ExecutorConfig,
-) -> Vec<u8> {
+pub fn build_two_leg_execute_calldata(route: &TwoLegRoute, _config: &ExecutorConfig) -> Vec<u8> {
     let mut calldata = Vec::with_capacity(512);
 
     calldata.extend_from_slice(&*EXECUTE_SELECTOR);
@@ -138,21 +136,17 @@ pub fn build_two_leg_execute_calldata(
     // loanToken(32) loanAmount(32) leg1Pool(32) leg2Pool(32) off1(32) off2(32)
     // => data section starts at 0xc0 (offsets are relative to the args block).
     let leg1_data_offset: u32 = 0xc0;
-    let leg2_data_offset: u32 =
-        leg1_data_offset + padded_bytes_field_len(leg1_data.len()) as u32;
+    let leg2_data_offset: u32 = leg1_data_offset + padded_bytes_field_len(leg1_data.len()) as u32;
 
     // loanToken (left-padded address)
-    push_address(&mut calldata, &route.loan_token)
-        .expect("validated loan token address");
+    push_address(&mut calldata, &route.loan_token).expect("validated loan token address");
 
     // loanAmount (uint256)
     calldata.extend_from_slice(&u256_to_bytes(route.loan_amount));
 
     // leg1Pool / leg2Pool (left-padded addresses)
-    push_address(&mut calldata, &route.leg1.pool_address)
-        .expect("validated leg1 pool address");
-    push_address(&mut calldata, &route.leg2.pool_address)
-        .expect("validated leg2 pool address");
+    push_address(&mut calldata, &route.leg1.pool_address).expect("validated leg1 pool address");
+    push_address(&mut calldata, &route.leg2.pool_address).expect("validated leg2 pool address");
 
     // leg1Data / leg2Data offsets (ABI: full 32-byte words)
     calldata.extend_from_slice(&u256_to_bytes(leg1_data_offset as u128));
@@ -289,10 +283,16 @@ pub fn validate_route(route: &TwoLegRoute) -> Vec<String> {
 
     // Pool address format check
     if !route.leg1.pool_address.starts_with("0x") || route.leg1.pool_address.len() != 42 {
-        errors.push(format!("Invalid leg1 pool address: {}", route.leg1.pool_address));
+        errors.push(format!(
+            "Invalid leg1 pool address: {}",
+            route.leg1.pool_address
+        ));
     }
     if !route.leg2.pool_address.starts_with("0x") || route.leg2.pool_address.len() != 42 {
-        errors.push(format!("Invalid leg2 pool address: {}", route.leg2.pool_address));
+        errors.push(format!(
+            "Invalid leg2 pool address: {}",
+            route.leg2.pool_address
+        ));
     }
 
     errors
@@ -335,8 +335,10 @@ mod tests {
     #[test]
     fn test_execute_selector_matches_contract_signature() {
         assert_eq!(*EXECUTE_SELECTOR, [0xfa, 0x48, 0xcb, 0x92]);
-        assert_eq!(selector_bytes("execute(address,uint256,address,address,bytes,bytes)"),
-                   [0xfa, 0x48, 0xcb, 0x92]);
+        assert_eq!(
+            selector_bytes("execute(address,uint256,address,address,bytes,bytes)"),
+            [0xfa, 0x48, 0xcb, 0x92]
+        );
     }
 
     /// AUDIT #4: leg selector must be the SwapRouter02 7-field struct-based
@@ -365,7 +367,10 @@ mod tests {
 
         // loanToken (word 1): left-padded 20-byte address
         assert_eq!(&cd[4..16], &[0u8; 12]);
-        assert_eq!(&cd[16..36], &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
+        assert_eq!(
+            &cd[16..36],
+            &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]
+        );
 
         // loanAmount (word 2)
         let mut amount_word = [0u8; 32];
@@ -374,11 +379,17 @@ mod tests {
 
         // leg1Pool (word 3)
         assert_eq!(&cd[68..80], &[0u8; 12]);
-        assert_eq!(&cd[80..100], &hex::decode("1111111111111111111111111111111111111111").unwrap()[..]);
+        assert_eq!(
+            &cd[80..100],
+            &hex::decode("1111111111111111111111111111111111111111").unwrap()[..]
+        );
 
         // leg2Pool (word 4)
         assert_eq!(&cd[100..112], &[0u8; 12]);
-        assert_eq!(&cd[112..132], &hex::decode("2222222222222222222222222222222222222222").unwrap()[..]);
+        assert_eq!(
+            &cd[112..132],
+            &hex::decode("2222222222222222222222222222222222222222").unwrap()[..]
+        );
 
         // Dynamic offsets (words 5, 6) — full 32-byte ABI words
         assert_eq!(&cd[132..164], &u256_to_bytes(0xc0));
@@ -387,38 +398,54 @@ mod tests {
 
         // leg1Data bytes length word (head = 4 + 6*32 = 196)
         let leg1_len_offset = 196usize;
-        assert_eq!(&cd[leg1_len_offset..leg1_len_offset + 32],
-                   &u256_to_bytes(LEG_DATA_LEN as u128));
+        assert_eq!(
+            &cd[leg1_len_offset..leg1_len_offset + 32],
+            &u256_to_bytes(LEG_DATA_LEN as u128)
+        );
 
         // leg1Data content: selector + fields (228 bytes, no struct offset)
         let leg1 = &cd[leg1_len_offset + 32..leg1_len_offset + 32 + LEG_DATA_LEN];
         assert_eq!(&leg1[0..4], &[0x04, 0xe4, 0x5a, 0xaf]);
         // tokenIn == loanToken (at [4..36])
-        assert_eq!(&leg1[4+12..36], &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
+        assert_eq!(
+            &leg1[4 + 12..36],
+            &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]
+        );
         // tokenOut == WETH (at [36..68])
-        assert_eq!(&leg1[36+12..68], &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]);
+        assert_eq!(
+            &leg1[36 + 12..68],
+            &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]
+        );
         // fee == 500, right-aligned in the 32-byte word [68..100]
         assert_eq!(&leg1[68..96], &[0u8; 28]);
         assert_eq!(&leg1[96..100], &500u32.to_be_bytes());
         // recipient == executor mirror address (at [100..132])
-        assert_eq!(&leg1[100+12..132], &hex::decode("DEADBEEF00000000000000000000000000000001").unwrap()[..]);
+        assert_eq!(
+            &leg1[100 + 12..132],
+            &hex::decode("DEADBEEF00000000000000000000000000000001").unwrap()[..]
+        );
         // amountIn == 1_000_000 (at [132..164])
-        assert_eq!(&leg1[132+16..164], &1_000_000u128.to_be_bytes());
+        assert_eq!(&leg1[132 + 16..164], &1_000_000u128.to_be_bytes());
         // amountOutMinimum == 900_000 (at [164..196])
-        assert_eq!(&leg1[164+16..196], &900_000u128.to_be_bytes());
+        assert_eq!(&leg1[164 + 16..196], &900_000u128.to_be_bytes());
         // sqrtPriceLimit == 0 (at [196..228])
         assert_eq!(&leg1[196..228], &[0u8; 32]);
         // 32-byte zero padding after the 228-byte leg data
-        assert_eq!(&cd[leg1_len_offset + 32 + LEG_DATA_LEN..leg1_len_offset + 32 + LEG_DATA_LEN + 28],
-                   &[0u8; 28]);
+        assert_eq!(
+            &cd[leg1_len_offset + 32 + LEG_DATA_LEN..leg1_len_offset + 32 + LEG_DATA_LEN + 28],
+            &[0u8; 28]
+        );
     }
 
     #[test]
     fn test_route_validation_token_continuity() {
         let route = sample_route();
         let errors = validate_route(&route);
-        assert!(errors.iter().all(|e| e.starts_with("WARNING")),
-                "Route should be valid apart from optional warnings: {:?}", errors);
+        assert!(
+            errors.iter().all(|e| e.starts_with("WARNING")),
+            "Route should be valid apart from optional warnings: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -460,16 +487,24 @@ mod tests {
 
         // tokenIn/tokenOut are at calldata-relative [4..36] / [36..68]
         // within each leg payload. Leg1: loan -> intermediate, Leg2: inter -> loan.
-        assert_eq!(&cd[leg1_start + 4 + 12..leg1_start + 36],
-                   &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
-        assert_eq!(&cd[leg1_start + 36 + 12..leg1_start + 68],
-                   &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]);
+        assert_eq!(
+            &cd[leg1_start + 4 + 12..leg1_start + 36],
+            &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]
+        );
+        assert_eq!(
+            &cd[leg1_start + 36 + 12..leg1_start + 68],
+            &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]
+        );
 
         // Leg2: tokenIn = WETH, tokenOut = USDC
-        assert_eq!(&cd[leg2_start + 4 + 12..leg2_start + 36],
-                   &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]);
-        assert_eq!(&cd[leg2_start + 36 + 12..leg2_start + 68],
-                   &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]);
+        assert_eq!(
+            &cd[leg2_start + 4 + 12..leg2_start + 36],
+            &hex::decode("82aF49447D8a07e3bd95BD0d56f35241523fBab1").unwrap()[..]
+        );
+        assert_eq!(
+            &cd[leg2_start + 36 + 12..leg2_start + 68],
+            &hex::decode("af88d065e77c8cc2239327c5edb3a432268e5831").unwrap()[..]
+        );
     }
 
     #[test]
@@ -479,7 +514,10 @@ mod tests {
         let calldata = build_two_leg_execute_calldata(&route, &config);
 
         // 4 + 6*32 + 2 * padded(260) = 4 + 192 + (32+288)*2 = 836
-        assert_eq!(calldata.len(), 4 + 192 + 2 * padded_bytes_field_len(LEG_DATA_LEN));
+        assert_eq!(
+            calldata.len(),
+            4 + 192 + 2 * padded_bytes_field_len(LEG_DATA_LEN)
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -511,7 +549,14 @@ mod tests {
         let recipient = decode_address(&leg_bytes[100..132]);
         let amount_in = decode_u256(&leg_bytes[132..164]);
         let amount_out_min = decode_u256(&leg_bytes[164..196]);
-        (token_in, token_out, fee, recipient, amount_in, amount_out_min)
+        (
+            token_in,
+            token_out,
+            fee,
+            recipient,
+            amount_in,
+            amount_out_min,
+        )
     }
 
     /// AUDIT #4: Full round-trip decode test — every field in the calldata
@@ -523,7 +568,11 @@ mod tests {
         let cd = build_two_leg_execute_calldata(&route, &config);
 
         // ── Head: selector ──
-        assert_eq!(&cd[0..4], &[0xfa, 0x48, 0xcb, 0x92], "execute selector mismatch");
+        assert_eq!(
+            &cd[0..4],
+            &[0xfa, 0x48, 0xcb, 0x92],
+            "execute selector mismatch"
+        );
 
         // ── Head: loanToken (word 1) ──
         let loan_token = addr_to_hex(decode_address(&cd[4..36]));
@@ -535,11 +584,17 @@ mod tests {
 
         // ── Head: leg1Pool (word 3) ──
         let leg1_pool = addr_to_hex(decode_address(&cd[68..100]));
-        assert_eq!(leg1_pool, "0x1111111111111111111111111111111111111111", "leg1Pool mismatch");
+        assert_eq!(
+            leg1_pool, "0x1111111111111111111111111111111111111111",
+            "leg1Pool mismatch"
+        );
 
         // ── Head: leg2Pool (word 4) ──
         let leg2_pool = addr_to_hex(decode_address(&cd[100..132]));
-        assert_eq!(leg2_pool, "0x2222222222222222222222222222222222222222", "leg2Pool mismatch");
+        assert_eq!(
+            leg2_pool, "0x2222222222222222222222222222222222222222",
+            "leg2Pool mismatch"
+        );
 
         // ── Head: leg1Data offset (word 5) ──
         let leg1_offset = u32::from_be_bytes(cd[160..164].try_into().unwrap());
@@ -547,33 +602,87 @@ mod tests {
 
         // ── Head: leg2Data offset (word 6) ──
         let leg2_offset = u32::from_be_bytes(cd[192..196].try_into().unwrap());
-        assert_eq!(leg2_offset, 0xc0 + padded_bytes_field_len(LEG_DATA_LEN) as u32, "leg2Data offset mismatch");
+        assert_eq!(
+            leg2_offset,
+            0xc0 + padded_bytes_field_len(LEG_DATA_LEN) as u32,
+            "leg2Data offset mismatch"
+        );
 
         // ── leg1Data content ──
         // leg1 data starts at byte 196 + 32 (length word) = 228
         let leg1_start = 196 + 32;
-        assert_eq!(&cd[leg1_start..leg1_start+4], &[0x04, 0xe4, 0x5a, 0xaf], "leg1 selector mismatch");
+        assert_eq!(
+            &cd[leg1_start..leg1_start + 4],
+            &[0x04, 0xe4, 0x5a, 0xaf],
+            "leg1 selector mismatch"
+        );
 
-        let (leg1_token_in, leg1_token_out, leg1_fee, leg1_recipient, leg1_amount_in, leg1_amount_out_min) =
-            decode_leg(&cd[leg1_start..leg1_start + LEG_DATA_LEN]);
-        assert_eq!(leg1_token_in, USDC.to_lowercase(), "leg1 tokenIn != loanToken");
-        assert_eq!(leg1_token_out, WETH.to_lowercase(), "leg1 tokenOut mismatch");
+        let (
+            leg1_token_in,
+            leg1_token_out,
+            leg1_fee,
+            leg1_recipient,
+            leg1_amount_in,
+            leg1_amount_out_min,
+        ) = decode_leg(&cd[leg1_start..leg1_start + LEG_DATA_LEN]);
+        assert_eq!(
+            leg1_token_in,
+            USDC.to_lowercase(),
+            "leg1 tokenIn != loanToken"
+        );
+        assert_eq!(
+            leg1_token_out,
+            WETH.to_lowercase(),
+            "leg1 tokenOut mismatch"
+        );
         assert_eq!(leg1_fee, 500, "leg1 fee mismatch");
-        assert_eq!(addr_to_hex(leg1_recipient), EXECUTOR_ADDRESS.to_lowercase(), "leg1 recipient mismatch");
+        assert_eq!(
+            addr_to_hex(leg1_recipient),
+            EXECUTOR_ADDRESS.to_lowercase(),
+            "leg1 recipient mismatch"
+        );
         assert_eq!(leg1_amount_in, 1_000_000, "leg1 amountIn mismatch");
-        assert_eq!(leg1_amount_out_min, 900_000, "leg1 amountOutMinimum mismatch");
+        assert_eq!(
+            leg1_amount_out_min, 900_000,
+            "leg1 amountOutMinimum mismatch"
+        );
 
         // ── leg2Data content ──
         let leg2_start = leg1_start + padded_bytes_field_len(LEG_DATA_LEN);
-        assert_eq!(&cd[leg2_start..leg2_start+4], &[0x04, 0xe4, 0x5a, 0xaf], "leg2 selector mismatch");
+        assert_eq!(
+            &cd[leg2_start..leg2_start + 4],
+            &[0x04, 0xe4, 0x5a, 0xaf],
+            "leg2 selector mismatch"
+        );
 
-        let (leg2_token_in, leg2_token_out, leg2_fee, leg2_recipient, _leg2_amount_in, leg2_amount_out_min) =
-            decode_leg(&cd[leg2_start..leg2_start + LEG_DATA_LEN]);
-        assert_eq!(leg2_token_in, WETH.to_lowercase(), "leg2 tokenIn must be WETH (intermediate)");
-        assert_eq!(leg2_token_out, USDC.to_lowercase(), "leg2 tokenOut must be loanToken");
+        let (
+            leg2_token_in,
+            leg2_token_out,
+            leg2_fee,
+            leg2_recipient,
+            _leg2_amount_in,
+            leg2_amount_out_min,
+        ) = decode_leg(&cd[leg2_start..leg2_start + LEG_DATA_LEN]);
+        assert_eq!(
+            leg2_token_in,
+            WETH.to_lowercase(),
+            "leg2 tokenIn must be WETH (intermediate)"
+        );
+        assert_eq!(
+            leg2_token_out,
+            USDC.to_lowercase(),
+            "leg2 tokenOut must be loanToken"
+        );
         assert_eq!(leg2_fee, 3000, "leg2 fee mismatch");
-        assert_eq!(addr_to_hex(leg2_recipient), EXECUTOR_ADDRESS.to_lowercase(), "leg2 recipient mismatch");
-        assert_eq!(leg2_amount_out_min, 1_010_000, "leg2 amountOutMinimum mismatch");
+        assert_eq!(
+            addr_to_hex(leg2_recipient),
+            EXECUTOR_ADDRESS.to_lowercase(),
+            "leg2 recipient mismatch"
+        );
+        assert_eq!(
+            leg2_amount_out_min, 1_010_000,
+            "leg2 amountOutMinimum mismatch"
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -587,7 +696,10 @@ mod tests {
     fn mock_validate_leg1(leg_data: &[u8], loan_token: &str) -> Vec<String> {
         let mut errors = Vec::new();
 
-        if leg_data.len() < 228 { errors.push("LEG_TOO_SHORT".into()); return errors; }
+        if leg_data.len() < 228 {
+            errors.push("LEG_TOO_SHORT".into());
+            return errors;
+        }
 
         let selector: [u8; 4] = leg_data[0..4].try_into().unwrap();
         if selector != [0x04, 0xe4, 0x5a, 0xaf] {
@@ -617,7 +729,10 @@ mod tests {
     fn mock_validate_leg2(leg_data: &[u8], leg1_token_out: &str) -> Vec<String> {
         let mut errors = Vec::new();
 
-        if leg_data.len() < 228 { errors.push("LEG_TOO_SHORT".into()); return errors; }
+        if leg_data.len() < 228 {
+            errors.push("LEG_TOO_SHORT".into());
+            return errors;
+        }
 
         let selector: [u8; 4] = leg_data[0..4].try_into().unwrap();
         if selector != [0x04, 0xe4, 0x5a, 0xaf] {
@@ -649,11 +764,19 @@ mod tests {
         let leg2_data = &cd[leg2_start..leg2_start + LEG_DATA_LEN];
 
         let leg1_errors = mock_validate_leg1(leg1_data, USDC);
-        assert!(leg1_errors.is_empty(), "leg1 should pass validation: {:?}", leg1_errors);
+        assert!(
+            leg1_errors.is_empty(),
+            "leg1 should pass validation: {:?}",
+            leg1_errors
+        );
 
         let leg1_token_out = addr_to_hex(decode_address(&leg1_data[36..68]));
         let leg2_errors = mock_validate_leg2(leg2_data, &leg1_token_out);
-        assert!(leg2_errors.is_empty(), "leg2 should pass validation: {:?}", leg2_errors);
+        assert!(
+            leg2_errors.is_empty(),
+            "leg2 should pass validation: {:?}",
+            leg2_errors
+        );
     }
 
     /// AUDIT #7: Slippage failure — set min_output = 0, expect validation failure.
@@ -672,8 +795,10 @@ mod tests {
         // leg2 token_in must match leg1 token_out
         let leg1_token_out = addr_to_hex(decode_address(&leg1_data[36..68]));
         let leg2_errors = mock_validate_leg2(leg2_data, &leg1_token_out);
-        assert!(leg2_errors.contains(&"NO_SLIPPAGE_GUARD".to_string()),
-                "Should detect missing slippage guard");
+        assert!(
+            leg2_errors.contains(&"NO_SLIPPAGE_GUARD".to_string()),
+            "Should detect missing slippage guard"
+        );
     }
 
     /// AUDIT #7: Malformed calldata — wrong selector, expect validation failure.
@@ -684,8 +809,11 @@ mod tests {
         let mut bad_cd = cd.clone();
         bad_cd[0..4].copy_from_slice(&[0xff, 0xff, 0xff, 0xff]);
 
-        assert_ne!(&bad_cd[0..4], &[0xfa, 0x48, 0xcb, 0x92],
-                   "Selector should be corrupted");
+        assert_ne!(
+            &bad_cd[0..4],
+            &[0xfa, 0x48, 0xcb, 0x92],
+            "Selector should be corrupted"
+        );
     }
 
     /// AUDIT #7: Token continuity check — leg2 token_in must equal leg1 token_out.
@@ -721,8 +849,11 @@ mod tests {
 
         let leg1_token_out = addr_to_hex(decode_address(&leg1_data[36..68]));
         let errors = mock_validate_leg2(leg2_data, &leg1_token_out);
-        assert!(errors.iter().any(|e| e.contains("BAD_TOKEN_IN")),
-                "Should detect broken token continuity: {:?}", errors);
+        assert!(
+            errors.iter().any(|e| e.contains("BAD_TOKEN_IN")),
+            "Should detect broken token continuity: {:?}",
+            errors
+        );
     }
 
     /// AUDIT #7: Pre-existing balance exclusion simulation.
@@ -740,7 +871,10 @@ mod tests {
         let bal_after: u64 = 1_000_510; // includes 500 pre-existing + 1000 loan + 10 profit
 
         let profit = bal_after - balance_before - repayment;
-        assert_eq!(profit, 10, "Profit should be 10 USDC after excluding pre-existing balance");
+        assert_eq!(
+            profit, 10,
+            "Profit should be 10 USDC after excluding pre-existing balance"
+        );
 
         // Verify USDC_TO_WEI scaling matches simulation.rs:487-489
         let usdc_to_wei: u128 = 1_000_000_000_000;
@@ -770,8 +904,13 @@ mod tests {
         let repayment = loan + fee;
         let bal_after: u64 = 1_002_000;
 
-        let profit = bal_after.saturating_sub(balance_before).saturating_sub(repayment);
-        assert_eq!(profit, 1_000, "Should correctly compute profit excluding pre-existing balance");
+        let profit = bal_after
+            .saturating_sub(balance_before)
+            .saturating_sub(repayment);
+        assert_eq!(
+            profit, 1_000,
+            "Should correctly compute profit excluding pre-existing balance"
+        );
     }
 
     /// AUDIT #4: Decode the Solidity _overrideAmountIn to verify
@@ -787,6 +926,9 @@ mod tests {
         // The Solidity _overrideAmountIn patches bytes [132..164) (relative to leg_data start)
         // Verify amountIn is at the expected position
         let amount_in = decode_u256(&leg_data[132..164]);
-        assert_eq!(amount_in, 1_000_000, "amountIn at offset 132 matches leg1 amount_in");
+        assert_eq!(
+            amount_in, 1_000_000,
+            "amountIn at offset 132 matches leg1 amount_in"
+        );
     }
 }

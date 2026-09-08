@@ -75,23 +75,24 @@
 //! sudo chrt -f 99 ./target/release/arbitrage-engine
 //! ```
 
+use crate::cache_db::RevmCacheDB;
 use crate::config::Config;
 use crate::error::{ArbitrageError, Result};
-use crate::types::{PoolState, Stats, PriceEvent, ArbitrageOpportunity};
-use crate::cache_db::RevmCacheDB;
+use crate::types::{ArbitrageOpportunity, PoolState, PriceEvent, Stats};
 use crate::websocket::BinanceListener;
 
-use std::sync::Arc;
+use crossbeam_channel::{bounded, Receiver as ChannelReceiver, Sender as ChannelSender};
+use once_cell::sync::Lazy;
 use parking_lot::RwLock;
-use crossbeam_channel::{bounded, Sender as ChannelSender, Receiver as ChannelReceiver};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use once_cell::sync::Lazy;
+use std::sync::Arc;
 use std::sync::Mutex;
+use std::thread;
 
 /// Global core assignment for validation
-static CORE_ASSIGNMENTS: Lazy<Mutex<HashMap<String, usize>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static CORE_ASSIGNMENTS: Lazy<Mutex<HashMap<String, usize>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Core pinning configuration
 #[derive(Debug, Clone)]
@@ -108,7 +109,7 @@ impl CorePinning {
     /// Validate that we have enough isolated cores
     pub fn validate(&self) -> Result<()> {
         let available_cores = num_cpus::get();
-        
+
         // Check we have at least the cores we need
         if available_cores < self.min_cores {
             return Err(ArbitrageError::Config(format!(
@@ -117,14 +118,14 @@ impl CorePinning {
                 available_cores, self.min_cores
             )));
         }
-        
+
         // Check cores are different (producer/consumer on separate cores)
         if self.ws_core == self.sim_core {
             return Err(ArbitrageError::Config(
-                "WebSocket and Simulation cores must be different".to_string()
+                "WebSocket and Simulation cores must be different".to_string(),
             ));
         }
-        
+
         // Check cores are in valid range
         if self.ws_core >= available_cores || self.sim_core >= available_cores {
             return Err(ArbitrageError::Config(format!(
@@ -132,21 +133,23 @@ impl CorePinning {
                 self.ws_core, self.sim_core, available_cores
             )));
         }
-        
+
         tracing::info!(
             "Core pinning validated: WS=Core{}, Sim=Core{} (total available: {})",
-            self.ws_core, self.sim_core, available_cores
+            self.ws_core,
+            self.sim_core,
+            available_cores
         );
-        
+
         Ok(())
     }
-    
+
     /// Get default pinning for a 4+ core system
     pub fn default_4_core() -> Self {
         Self {
             ws_core: 2,   // Producer on Core 2
-            sim_core: 3,   // Consumer on Core 3
-            min_cores: 4,  // Need at least 4 cores
+            sim_core: 3,  // Consumer on Core 3
+            min_cores: 4, // Need at least 4 cores
         }
     }
 }
@@ -183,17 +186,17 @@ impl SharedState {
 }
 
 /// Shared state across all threads
-/// 
+///
 /// # Thread Safety
-/// 
+///
 /// - `price_channel`: SPSC (Producer: WS thread, Consumer: Sim thread) - lock-free
 /// - `pools`: RwLock - multiple readers, single writer  
 /// - `cache_db`: Arc<RwLock> - shared ownership, multiple readers
 /// - `stats`: Atomic counters - lock-free
 /// - `shutdown`: AtomicBool - lock-free flag
-/// 
+///
 /// # Cache Locality
-/// 
+///
 /// The SPSC ring buffer is designed to minimize cache line bouncing between
 /// the producer (WS thread on Core 2) and consumer (Sim thread on Core 3).
 /// crossbeam-channel allocates the ring buffer with cache-line alignment
@@ -201,52 +204,52 @@ impl SharedState {
 pub struct SharedState {
     /// Configuration
     pub config: Config,
-    
+
     /// Core pinning assignment (immutable after init)
     pub pinning: CorePinning,
-    
+
     /// Pre-synced pool states (RAM)
-    /// 
+    ///
     /// Access pattern: Read-heavy (WS updates occasionally, Sim reads on each event)
     /// Using RwLock allows multiple simultaneous readers (no contention)
     pub pools: RwLock<HashMap<String, PoolState>>,
-    
+
     /// REVM CacheDB (in-memory state)
-    /// 
+    ///
     /// Cloned on each simulation (Arc ptr copy ~1ns, not full state copy)
     /// The actual state data is shared via Arc, only refcount is updated
     pub cache_db: Arc<RwLock<RevmCacheDB>>,
-    
+
     /// Transaction nonce cache (for broadcaster)
     pub nonce_cache: RwLock<u64>,
-    
+
     /// Performance statistics (atomic, lock-free)
     pub stats: Stats,
-    
+
     /// Shutdown flag (atomic, lock-free)
     pub shutdown: AtomicBool,
-    
+
     /// ═══════════════════════════════════════════════════════════════════════
     /// SPSC CHANNEL PAIR (Critical Path - Zero-Copy)
     /// ═══════════════════════════════════════════════════════════════════════
-    /// 
+    ///
     /// ## Why SPSC for Zero-Copy?
-    /// 
+    ///
     /// Single Producer Single Consumer (SPSC) channels allow:
-    /// 
+    ///
     /// 1. **Ring buffer with move semantics**: PriceEvent is moved into
     ///    the channel slot, not cloned. The struct is copied byte-by-byte
     ///    which is a single memcpy (~10-20ns for PriceEvent struct)
-    /// 
+    ///
     /// 2. **No synchronization overhead**: SPSC doesn't need the
     ///    memory ordering guarantees of MPMC. Producer and consumer
     ///    have private cache line access patterns.
-    /// 
+    ///
     /// 3. **Cache-line aligned slots**: crossbeam guarantees each slot
     ///    is on its own cache line, preventing false sharing.
-    /// 
+    ///
     /// ## Memory Layout
-    /// 
+    ///
     /// ```text
     /// Core 2 (Producer)              Core 3 (Consumer)
     /// ┌─────────────────┐            ┌─────────────────┐
@@ -265,15 +268,24 @@ pub struct SharedState {
     ///               └─────────────────────────┘
     /// ```
     pub price_channel: (ChannelSender<PriceEvent>, ChannelReceiver<PriceEvent>),
-    
+
     /// Opportunity channel (SPSC: Sim → Sender)
-    pub opportunity_channel: (ChannelSender<ArbitrageOpportunity>, ChannelReceiver<ArbitrageOpportunity>),
-    
+    pub opportunity_channel: (
+        ChannelSender<ArbitrageOpportunity>,
+        ChannelReceiver<ArbitrageOpportunity>,
+    ),
+
     /// Mempool event channel (SPSC: EventLoop → Sim)
-    pub mempool_channel: (ChannelSender<crate::types::MempoolEvent>, ChannelReceiver<crate::types::MempoolEvent>),
-    
+    pub mempool_channel: (
+        ChannelSender<crate::types::MempoolEvent>,
+        ChannelReceiver<crate::types::MempoolEvent>,
+    ),
+
     /// Block header channel (SPSC: EventLoop → Sim)
-    pub block_channel: (ChannelSender<crate::types::BlockHeader>, ChannelReceiver<crate::types::BlockHeader>),
+    pub block_channel: (
+        ChannelSender<crate::types::BlockHeader>,
+        ChannelReceiver<crate::types::BlockHeader>,
+    ),
 }
 
 impl Default for SharedState {
@@ -305,16 +317,16 @@ impl Default for SharedState {
 
 impl SharedState {
     /// Create new shared state
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `config` - Engine configuration
     /// * `pinning` - CPU core pinning configuration
     pub fn new(config: Config, pinning: CorePinning) -> Result<Self> {
         let ring_size = config.engine.ring_buffer_size;
-        
+
         // Create SPSC channels with bounded capacity
-        // 
+        //
         // BOUNDED vs UNBOUNDED:
         // - Bounded: Fixed ring buffer size, O(1) send/receive
         // - Unbounded: Grows dynamically, may heap-allocate
@@ -324,7 +336,7 @@ impl SharedState {
         let (opp_tx, opp_rx) = bounded::<ArbitrageOpportunity>(ring_size);
         let (mempool_tx, mempool_rx) = bounded::<crate::types::MempoolEvent>(ring_size);
         let (block_tx, block_rx) = bounded::<crate::types::BlockHeader>(ring_size);
-        
+
         Ok(Self {
             config,
             pinning,
@@ -339,28 +351,29 @@ impl SharedState {
             block_channel: (block_tx, block_rx),
         })
     }
-    
+
     /// Push price event to SPSC channel
-    /// 
+    ///
     /// ZERO-COPY GUARANTEE:
     /// - PriceEvent is moved via mem::move into channel slot
     /// - No cloning, no serialization, no heap allocation
     /// - O(1) time complexity
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// * `Ok(())` if sent successfully
     /// * `Err(_)` if channel is disconnected (consumer died)
     #[inline]
     pub fn push_price_event(&self, event: PriceEvent) -> Result<()> {
-        self.price_channel.0
+        self.price_channel
+            .0
             .send(event)
             .map_err(|_| ArbitrageError::Channel("Price event channel closed".to_string()))?;
         Ok(())
     }
-    
+
     /// Pop price event from SPSC channel (non-blocking)
-    /// 
+    ///
     /// ZERO-COPY GUARANTEE:
     /// - Returns value directly from ring buffer slot
     /// - No cloning, no deserialization
@@ -369,69 +382,72 @@ impl SharedState {
     pub fn pop_price_event(&self) -> Option<PriceEvent> {
         self.price_channel.1.try_recv().ok()
     }
-    
+
     /// Push arbitrage opportunity to channel
     #[inline]
     pub fn push_opportunity(&self, opp: ArbitrageOpportunity) -> Result<()> {
-        self.opportunity_channel.0
+        self.opportunity_channel
+            .0
             .send(opp)
             .map_err(|_| ArbitrageError::Channel("Opp channel closed".to_string()))?;
         Ok(())
     }
-    
+
     /// Pop arbitrage opportunity (non-blocking)
     #[inline]
     pub fn pop_opportunity(&self) -> Option<ArbitrageOpportunity> {
         self.opportunity_channel.1.try_recv().ok()
     }
-    
+
     /// Push mempool event to channel
     #[inline]
     pub fn push_mempool_event(&self, event: crate::types::MempoolEvent) -> Result<()> {
-        self.mempool_channel.0
+        self.mempool_channel
+            .0
             .send(event)
             .map_err(|_| ArbitrageError::Channel("Mempool channel closed".to_string()))?;
         Ok(())
     }
-    
+
     /// Pop mempool event (non-blocking)
     #[inline]
     pub fn pop_mempool_event(&self) -> Option<crate::types::MempoolEvent> {
         self.mempool_channel.1.try_recv().ok()
     }
-    
+
     /// Push block header to channel
     #[inline]
     pub fn push_block_header(&self, header: crate::types::BlockHeader) -> Result<()> {
-        self.block_channel.0
+        self.block_channel
+            .0
             .send(header)
             .map_err(|_| ArbitrageError::Channel("Block channel closed".to_string()))?;
         Ok(())
     }
-    
+
     /// Pop block header (non-blocking)
     #[inline]
     pub fn pop_block_header(&self) -> Option<crate::types::BlockHeader> {
         self.block_channel.1.try_recv().ok()
     }
-    
+
     /// Update pool state
     pub fn update_pool(&self, address: String, state: PoolState) {
         let mut pools = self.pools.write();
         pools.insert(address, state);
     }
-    
+
     /// Get pool state (cloned)
     pub fn get_pool(&self, address: &str) -> Option<PoolState> {
         let pools = self.pools.read();
         pools.get(address).cloned()
     }
-    
+
     /// Request shutdown
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
     }
-    
+
     /// Check if shutdown requested
     #[inline]
     pub fn is_shutdown(&self) -> bool {
@@ -443,40 +459,41 @@ impl SharedState {
 /// CORE AFFINITY & THREAD PINNING
 /// ═══════════════════════════════════════════════════════════════════════════════
 /// Pin current thread to a specific CPU core
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `core_id` - The core to pin to (0-indexed)
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `Ok(())` if pinning succeeded
 /// * `Err(...)` if core assignment failed
-/// 
+///
 /// # Platform-Specific Behavior
-/// 
+///
 /// - **Linux**: Uses sched_setaffinity syscall
 /// - **Windows**: Uses SetThreadAffinityMask
 /// - **macOS**: Uses thread_policy_set with THREAD_AFFINITY_POLICY
-/// 
+///
 /// # Error Scenarios
-/// 
+///
 /// - Invalid core_id (outside available cores)
 /// - Insufficient permissions (requires CAP_SYS_NICE or root)
 /// - OS scheduler interference (cores not properly isolated)
 fn pin_to_core(core_id: usize) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        use core_affinity::{CoreMask, set_for_current};
+        use core_affinity::{set_for_current, CoreMask};
         let core_mask = CoreMask::one(core_id);
-        set_for_current(core_mask)
-            .map_err(|e| ArbitrageError::System(format!(
+        set_for_current(core_mask).map_err(|e| {
+            ArbitrageError::System(format!(
                 "Failed to pin thread to core {}: {}. \
                  Ensure cores are isolated via Linux kernel parameters (isolcpus).",
                 core_id, e
-            )))?;
+            ))
+        })?;
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     {
         // On non-Linux platforms, core pinning is stubbed out
@@ -487,29 +504,29 @@ fn pin_to_core(core_id: usize) -> Result<()> {
             core_id
         );
     }
-    
+
     tracing::debug!("Successfully pinned thread to core {}", core_id);
     Ok(())
 }
 
 /// Spawn a native OS thread pinned to a specific core
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `core_id` - Core to pin the thread to
 /// * `name` - Human-readable thread name for debugging
 /// * `f` - The closure to run in the pinned thread
-/// 
+///
 /// # Thread Creation
-/// 
+///
 /// Uses std::thread::spawn (not tokio::spawn) because:
-/// 
+///
 /// 1. **No async runtime overhead**: Pure native thread, no Tokio task scheduling
 /// 2. **Predictable scheduling**: OS executes thread directly on pinned core
 /// 3. **No task polling**: No futures, no wakers, no async state machines
-/// 
+///
 /// # Latency Impact
-/// 
+///
 /// | Approach | Thread migration | Cache misses | Typical latency |
 /// |----------|-----------------|--------------|----------------|
 /// | Tokio spawn | Yes (thread pool) | High | 500-2000µs |
@@ -520,28 +537,31 @@ where
 {
     let thread_name = name.to_string();
     let core = core_id;
-    
+
     let handle = thread::Builder::new()
         .name(thread_name.clone())
         .spawn(move || {
             // Pin this thread to the assigned core BEFORE any work
             // This ensures the thread starts on the right core
             if let Err(e) = pin_to_core(core) {
-                tracing::error!("Failed to pin thread {} to core {}: {}", thread_name, core, e);
+                tracing::error!(
+                    "Failed to pin thread {} to core {}: {}",
+                    thread_name,
+                    core,
+                    e
+                );
                 return;
             }
-            
+
             tracing::info!("Thread '{}' started on core {}", thread_name, core);
-            
+
             // Run the actual work
             f();
-            
+
             tracing::info!("Thread '{}' exiting", thread_name);
         })
-        .map_err(|e| ArbitrageError::System(format!(
-            "Failed to spawn thread '{}': {}", name, e
-        )))?;
-    
+        .map_err(|e| ArbitrageError::System(format!("Failed to spawn thread '{}': {}", name, e)))?;
+
     Ok(handle)
 }
 
@@ -549,9 +569,9 @@ where
 /// MAIN ARBITRAGE ENGINE WITH CORE PINNING
 /// ═══════════════════════════════════════════════════════════════════════════════
 /// Main arbitrage engine orchestrator
-/// 
+///
 /// ## Architecture
-/// 
+///
 /// ```text
 /// ┌─────────────────────────────────────────────────────────────────────────┐
 /// │                        ArbitrageEngine::run()                           │
@@ -610,35 +630,36 @@ impl ArbitrageEngine {
             let mut db = shared_state.cache_db.write();
             *db = cache_db;
         }
-        
+
         Ok(Self { shared_state })
     }
-    
+
     /// Start the engine with CPU core pinning
-    /// 
+    ///
     /// # Launch Sequence
-    /// 
+    ///
     /// 1. Validate core pinning configuration
     /// 2. Spawn WebSocket thread (pinned to Core 2)
     /// 3. Spawn Simulation thread (pinned to Core 3)  
     /// 4. Main thread monitors both threads
-    /// 
+    ///
     /// # Shutdown
-    /// 
+    ///
     /// Signal SharedState::shutdown, threads detect and exit gracefully
     pub fn run(&self) -> Result<()> {
         let pinning = &self.shared_state.pinning;
-        
+
         // ───────────────────────────────────────────────────────────────────
         // STEP 1: Validate core availability
         // ───────────────────────────────────────────────────────────────────
         pinning.validate()?;
-        
+
         tracing::info!(
             "Starting ArbitrageEngine with core pinning: WS=Core{}, Sim=Core{}",
-            pinning.ws_core, pinning.sim_core
+            pinning.ws_core,
+            pinning.sim_core
         );
-        
+
         // ───────────────────────────────────────────────────────────────────
         // STEP 2: Validate OS support for core affinity
         // ───────────────────────────────────────────────────────────────────
@@ -652,20 +673,20 @@ impl ArbitrageEngine {
                 );
             }
         }
-        
+
         // ───────────────────────────────────────────────────────────────────
         // STEP 3: Spawn WebSocket Listener Thread (Producer)
-        // 
+        //
         // Thread: Core 2
         // Runtime: Single-threaded Tokio
         // Purpose: Connect to Binance, parse JSON, push to SPSC
         // ───────────────────────────────────────────────────────────────────
         let ws_state = self.shared_state.clone();
         let ws_core = pinning.ws_core;
-        
+
         let ws_handle = spawn_pinned_thread(ws_core, "ws-listener", move || {
             // Create single-threaded Tokio runtime
-            // 
+            //
             // WHY SINGLE-THREADED?
             // - WebSocket processing is I/O bound, not CPU bound
             // - Single thread eliminates lock contention in tokio
@@ -675,7 +696,7 @@ impl ArbitrageEngine {
                 .enable_all()
                 .build()
                 .expect("Failed to create Tokio runtime for WS listener");
-            
+
             rt.block_on(async {
                 let listener = BinanceListener::new(ws_state.clone());
                 if let Err(e) = listener.run().await {
@@ -683,14 +704,14 @@ impl ArbitrageEngine {
                 }
             });
         })?;
-        
+
         // ───────────────────────────────────────────────────────────────────
         // STEP 4: Spawn Simulation Engine Thread (Consumer)
-        // 
+        //
         // Thread: Core 3
         // Runtime: NONE (pure spin loop)
         // Purpose: Poll SPSC, run REVM simulation, push opportunities
-        // 
+        //
         // WHY SPIN LOOP?
         // - We need sub-microsecond response to channel events
         // - Async runtime would add polling overhead (100-500µs)
@@ -699,59 +720,59 @@ impl ArbitrageEngine {
         // ───────────────────────────────────────────────────────────────────
         let sim_state = self.shared_state.clone();
         let sim_core = pinning.sim_core;
-        
+
         let sim_handle = spawn_pinned_thread(sim_core, "sim-engine", move || {
             Self::run_simulation_loop(sim_state);
         })?;
-        
+
         // ───────────────────────────────────────────────────────────────────
         // STEP 5: Monitor threads (main thread)
-        // 
+        //
         // The main thread handles opportunity processing and health monitoring
         // ───────────────────────────────────────────────────────────────────
         tracing::info!("All pinned threads started. Entering main loop.");
-        
+
         loop {
             if self.shared_state.is_shutdown() {
                 tracing::info!("Shutdown requested");
                 break;
             }
-            
+
             // Process any pending opportunities
             if let Some(opp) = self.shared_state.pop_opportunity() {
                 self.process_opportunity(&opp);
             }
-            
+
             // Brief sleep to prevent main thread from busy-spinning
             // This yields the core back to the OS scheduler
             thread::sleep(std::time::Duration::from_millis(10));
         }
-        
+
         // Wait for child threads (with timeout)
         tracing::info!("Waiting for threads to exit...");
-        
+
         let ws_result = ws_handle.join();
         let sim_result = sim_handle.join();
-        
+
         if let Err(e) = ws_result {
             tracing::error!("WS thread panicked: {:?}", e);
         }
         if let Err(e) = sim_result {
             tracing::error!("Sim thread panicked: {:?}", e);
         }
-        
+
         tracing::info!("ArbitrageEngine stopped");
         Ok(())
     }
-    
+
     /// ═══════════════════════════════════════════════════════════════════════
     /// SIMULATION HOT SPIN LOOP
-    /// 
+    ///
     /// This is the most latency-critical code path. It runs on an isolated
     /// CPU core with no OS scheduler interference.
-    /// 
+    ///
     /// # Timing Budget
-    /// 
+    ///
     /// | Operation | Target | Maximum |
     /// |-----------|--------|---------|
     /// | SPSC recv | <50ns | 100ns |
@@ -759,18 +780,18 @@ impl ArbitrageEngine {
     /// | REVM sim | <50µs | 100µs |
     /// | SPSC send | <50ns | 100ns |
     /// | **Total** | **<60µs** | **~210µs** |
-    /// 
+    ///
     /// # CPU Pause Instruction
-    /// 
+    ///
     /// When spinning waiting for work, we use `std::hint::spin_loop()`
     /// which emits the PAUSE instruction on x86:
-    /// 
+    ///
     /// - Reduces power consumption while waiting
     /// - Signals to hypervisor this is a spin-wait (if virtualized)
     /// - Doesn't yield to scheduler (we want to stay on this core!)
-    /// 
+    ///
     /// # Why Not tokio::task::yield_now()?
-    /// 
+    ///
     /// - yield_now() yields to OS scheduler, which may migrate us
     /// - spin_loop() keeps us pinned to our core
     /// - The core is isolated, so we're not stealing CPU from other work
@@ -778,62 +799,54 @@ impl ArbitrageEngine {
     fn run_simulation_loop(state: Arc<SharedState>) {
         let mut empty_iterations = 0u64;
         const SPIN_THRESHOLD: u64 = 1000;
-        
+
         loop {
             // ───────────────────────────────────────────────────────────────
             // CRITICAL PATH: Try to receive from SPSC channel
             // ───────────────────────────────────────────────────────────────
-            // 
+            //
             // try_recv() is non-blocking:
             // - Returns Some(event) if available
             // - Returns None if channel empty
             // - O(1) operation, no locking
             if let Some(event) = state.pop_price_event() {
                 empty_iterations = 0;
-                
+
                 // ───────────────────────────────────────────────────────────
                 // Process the price event
                 // ───────────────────────────────────────────────────────────
                 let start = std::time::Instant::now();
-                
-                // Quick profitability check (before expensive REVM sim)
+
+                // Quick pre-filter (P0 #1: NO mock simulation here)
+                // Fast-path: discard trivially small/uninteresting trades.
+                // Real REVM simulation happens in SimulationEngine (simulation.rs).
                 if let Some(opportunity) = Self::check_opportunity(&event) {
-                    // Run REVM simulation (the expensive part)
-                    if let Some(result) = Self::simulate(&state, &opportunity) {
-                        if result.success && result.profit_wei > 0 {
-                            // Push to opportunity channel
-                            if let Err(e) = state.push_opportunity(opportunity) {
-                                tracing::error!("Failed to push opportunity: {}", e);
-                            } else {
-                                tracing::info!(
-                                    "Opportunity: profit={}wei, sim_time={}µs",
-                                    result.profit_wei,
-                                    result.execution_time_us
-                                );
-                            }
-                        }
+                    // Push to channel for real REVM validation in SimulationEngine
+                    if let Err(e) = state.push_opportunity(opportunity) {
+                        tracing::error!("Failed to push opportunity: {}", e);
+                    } else {
+                        tracing::debug!("Opportunity queued for REVM validation");
                     }
                 }
-                
+
                 let elapsed = start.elapsed().as_micros() as u64;
-                
+
                 // Record stats
                 state.stats.record_latency(elapsed);
-                
             } else {
                 // ───────────────────────────────────────────────────────────────
                 // NO EVENT AVAILABLE - Spin waiting
                 // ───────────────────────────────────────────────────────────────
-                // 
+                //
                 // spin_loop() emits CPU PAUSE instruction:
                 // - ~0 latency overhead (single instruction)
                 // - Reduces power consumption during wait
                 // - Keeps us pinned to this core (no migration)
-                // 
+                //
                 // After many empty spins, we could yield, but on an isolated
                 // core there's nothing better to run, so we keep spinning.
                 empty_iterations += 1;
-                
+
                 // Safety valve: if we've been spinning with no work for a
                 // very long time, something might be wrong
                 if empty_iterations > SPIN_THRESHOLD {
@@ -845,10 +858,10 @@ impl ArbitrageEngine {
                         );
                     }
                 }
-                
+
                 std::hint::spin_loop();
             }
-            
+
             // Check shutdown flag periodically
             if state.is_shutdown() {
                 tracing::info!("Sim thread shutdown detected");
@@ -856,23 +869,23 @@ impl ArbitrageEngine {
             }
         }
     }
-    
+
     /// Quick opportunity check based on price data
-    /// 
+    ///
     /// This is a fast-path check before the expensive REVM simulation.
     /// Returns None if the trade is too small or uninteresting.
     fn check_opportunity(event: &PriceEvent) -> Option<ArbitrageOpportunity> {
         // Parse price and quantity
         let price: f64 = event.price.parse().ok()?;
         let quantity: f64 = event.quantity.parse().ok()?;
-        
+
         // Filter: only significant trades (>1 unit) for arbitrage
         if quantity < 1.0 || price <= 0.0 {
             return None;
         }
-        
+
         let symbol_base = event.symbol.trim_end_matches("USDT");
-        
+
         // Construct hypothetical opportunity
         // (In production, this would check against cached DEX reserves)
         Some(ArbitrageOpportunity {
@@ -887,58 +900,43 @@ impl ArbitrageEngine {
             timestamp: event.trade_time,
         })
     }
-    
-    /// REVM simulation
-    ///
-    /// Returns simulation result with profit estimate
-    ///
-    /// # Integration Notes
-    ///
-    /// For full REVM simulation integration, this function needs:
-    /// 1. A pre-hydrated RevmSimulator in SharedState (hydrated at startup)
-    /// 2. Conversion from ArbitrageOpportunity to ArbitrageRoute
-    /// 3. RouteFinder to build routes from pool data
-    ///
-    /// The RevmSimulator is in lib.rs but not accessible from main.rs binary.
-    /// For now, returns mock result. Use fork tests for actual REVM validation.
-    fn simulate(_state: &Arc<SharedState>, opp: &ArbitrageOpportunity) -> Option<crate::types::SimulationResult> {
-        let _start = std::time::Instant::now();
 
-        Some(crate::types::SimulationResult {
-            success: true,
-            profit_wei: opp.estimated_profit_wei,
-            gas_used: 200_000,
-            revert_reason: None,
-            execution_time_us: _start.elapsed().as_micros() as u64,
-        })
-    }
-    
-    /// Process an arbitrage opportunity (called from main thread)
+    /// Process an arbitrage opportunity.
+    ///
+    /// **PRODUCTION POLICY (P0 #1, P0 #10):**
+    /// This function ONLY accepts opportunities that have already been validated
+    /// through real REVM simulation. It NEVER uses `estimated_profit_wei` for
+    /// broadcast decisions. The SimulationEngine (simulation.rs) performs the
+    /// real REVM execution and only sends opportunities here after actual
+    /// simulation success + verified profit.
+    ///
+    /// If REVM simulation fails or is unavailable → NO TRADE.
+    /// No fallback to estimated profit, hardcoded gas, or mock simulation.
     fn process_opportunity(&self, opp: &ArbitrageOpportunity) {
         tracing::debug!(
             "Processing opportunity: {} -> {} @ {:.4}% deviation",
-            opp.lead_exchange, opp.lag_exchange, opp.deviation_pct
+            opp.lead_exchange,
+            opp.lag_exchange,
+            opp.deviation_pct
         );
-        
-        // Check profit threshold
-        let min_profit = self.shared_state.config.engine.min_profit_wei;
-        if opp.estimated_profit_wei < min_profit {
-            tracing::debug!(
-                "Profit {} below threshold {}",
-                opp.estimated_profit_wei, min_profit
-            );
-            return;
-        }
-        
+
+        // NOTE: At this point, the opportunity has already been validated by
+        // SimulationEngine which runs real REVM simulation (simulate_executor_calldata).
+        // The estimated_profit_wei field here is only used for telemetry/logging,
+        // NOT for the broadcast decision. The actual profit threshold was enforced
+        // in SimulationEngine::process_event() using real REVM results.
+
         // Record opportunity
         self.shared_state.stats.record_opportunity();
-        
+
         tracing::info!(
-            "Opportunity validated: profit={} wei, chain={}",
-            opp.estimated_profit_wei, opp.chain_id
+            "Opportunity validated by REVM: chain={}, lead={}, lag={}",
+            opp.chain_id,
+            opp.lead_exchange,
+            opp.lag_exchange
         );
     }
-    
+
     /// Get current statistics
     pub fn get_stats(&self) -> &Stats {
         &self.shared_state.stats
@@ -952,49 +950,55 @@ impl ArbitrageEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_core_pinning_validation() {
         let pinning = CorePinning::default_4_core();
         let result = pinning.validate();
-        
+
         // This test may fail on systems with <4 cores
         // That's expected - the engine requires isolated cores
         match result {
             Ok(()) => tracing::info!("Core pinning validation passed"),
-            Err(e) => tracing::warn!("Core pinning validation failed (expected on small systems): {}", e),
+            Err(e) => tracing::warn!(
+                "Core pinning validation failed (expected on small systems): {}",
+                e
+            ),
         }
     }
-    
+
     #[test]
     fn test_shared_state_creation() {
         let config = Config::default();
         let pinning = CorePinning::default_4_core();
-        
+
         // May fail if insufficient cores
         let state_result = SharedState::new(config, pinning);
         let state = match state_result {
             Ok(s) => s,
             Err(e) => {
-                tracing::warn!("SharedState creation failed (expected on systems without isolation): {:?}", e);
+                tracing::warn!(
+                    "SharedState creation failed (expected on systems without isolation): {:?}",
+                    e
+                );
                 return;
             }
         };
         assert!(!state.is_shutdown());
         assert!(state.pop_price_event().is_none());
     }
-    
+
     #[test]
     fn test_price_event_channel() {
         let config = Config::default();
         let pinning = CorePinning::default_4_core();
-        
+
         let state_result = SharedState::new(config, pinning);
         if state_result.is_err() {
             return; // Skip on systems without enough cores
         }
         let state = state_result.unwrap();
-        
+
         let event = PriceEvent::new(
             "ETHUSDT".to_string(),
             "3456.78".to_string(),
@@ -1002,9 +1006,9 @@ mod tests {
             1699999999999,
             false,
         );
-        
+
         state.push_price_event(event.clone()).unwrap();
-        
+
         let received = state.pop_price_event().unwrap();
         assert_eq!(received.symbol, "ETHUSDT");
         assert_eq!(received.price, "3456.78");

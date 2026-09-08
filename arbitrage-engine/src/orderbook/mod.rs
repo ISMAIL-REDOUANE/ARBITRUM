@@ -23,17 +23,17 @@
 //!
 //! Where N is the top N price levels.
 
+pub mod health;
 pub mod l2_book;
 pub mod l2_update;
 pub mod obi;
-pub mod health;
 pub mod persistence;
 pub mod symbol_actor;
 
+pub use health::{ConnectionHealth, FeedHealth};
 pub use l2_book::{L2Book, Level, OrderBookSnapshot, SymbolSnapshot};
 pub use l2_update::{Exchange, L2Update, Side};
-pub use obi::{ObiSnapshot, ObiConfig};
-pub use health::{ConnectionHealth, FeedHealth};
+pub use obi::{ObiConfig, ObiSnapshot};
 pub use persistence::{L2Persister, ReplaySource};
 
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,10 @@ impl SymbolMetadata {
     }
 
     pub fn from_exchange_symbol(exchange: &str, symbol: &str) -> Option<Self> {
-        match (exchange.to_lowercase().as_str(), symbol.to_uppercase().as_str()) {
+        match (
+            exchange.to_lowercase().as_str(),
+            symbol.to_uppercase().as_str(),
+        ) {
             ("binance", s) if s.ends_with("USDT") => Some(Self::new(exchange, symbol, 8, 8)),
             ("binance", s) if s.ends_with("BUSD") => Some(Self::new(exchange, symbol, 8, 8)),
             ("bybit", s) if s.ends_with("USDT") => Some(Self::new(exchange, symbol, 8, 8)),
@@ -149,14 +152,62 @@ impl DepthLevels {
         let scale = book.price_scale() as f64;
         let divisor = 10f64.powf(scale);
         Self {
-            top1_bid: book.best_bid().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }),
-            top1_ask: book.best_ask().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }),
-            top3_bid: book.top_n_bids(3).into_iter().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }).collect(),
-            top3_ask: book.top_n_asks(3).into_iter().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }).collect(),
-            top5_bid: book.top_n_bids(5).into_iter().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }).collect(),
-            top5_ask: book.top_n_asks(5).into_iter().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }).collect(),
-            top10_bid: book.top_n_bids(10).into_iter().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }).collect(),
-            top10_ask: book.top_n_asks(10).into_iter().map(|(p, q)| PriceLevel { price: p as f64 / divisor, quantity: q }).collect(),
+            top1_bid: book.best_bid().map(|(p, q)| PriceLevel {
+                price: p as f64 / divisor,
+                quantity: q,
+            }),
+            top1_ask: book.best_ask().map(|(p, q)| PriceLevel {
+                price: p as f64 / divisor,
+                quantity: q,
+            }),
+            top3_bid: book
+                .top_n_bids(3)
+                .into_iter()
+                .map(|(p, q)| PriceLevel {
+                    price: p as f64 / divisor,
+                    quantity: q,
+                })
+                .collect(),
+            top3_ask: book
+                .top_n_asks(3)
+                .into_iter()
+                .map(|(p, q)| PriceLevel {
+                    price: p as f64 / divisor,
+                    quantity: q,
+                })
+                .collect(),
+            top5_bid: book
+                .top_n_bids(5)
+                .into_iter()
+                .map(|(p, q)| PriceLevel {
+                    price: p as f64 / divisor,
+                    quantity: q,
+                })
+                .collect(),
+            top5_ask: book
+                .top_n_asks(5)
+                .into_iter()
+                .map(|(p, q)| PriceLevel {
+                    price: p as f64 / divisor,
+                    quantity: q,
+                })
+                .collect(),
+            top10_bid: book
+                .top_n_bids(10)
+                .into_iter()
+                .map(|(p, q)| PriceLevel {
+                    price: p as f64 / divisor,
+                    quantity: q,
+                })
+                .collect(),
+            top10_ask: book
+                .top_n_asks(10)
+                .into_iter()
+                .map(|(p, q)| PriceLevel {
+                    price: p as f64 / divisor,
+                    quantity: q,
+                })
+                .collect(),
         }
     }
 }

@@ -33,7 +33,7 @@ static TSC_CALIBRATED: AtomicU64 = AtomicU64::new(0);
 const CALIBRATION_SAMPLES: usize = 10;
 
 /// Initialize TSC calibration
-/// 
+///
 /// Must be called at startup (before pinned threads) to establish
 /// the conversion factor between cycles and nanoseconds.
 pub fn calibrate() {
@@ -42,24 +42,24 @@ pub fn calibrate() {
         if is_tsc_calibrated() {
             return;
         }
-        
+
         let mut total_cycles: u64 = 0;
         let mut total_ns: u64 = 0;
-        
+
         for _ in 0..CALIBRATION_SAMPLES {
             let start_tsc = unsafe { rdtsc_raw() };
             let start_instant = Instant::now();
-            
+
             // Sleep for ~10ms using OS timer
             std::thread::sleep(Duration::from_millis(10));
-            
+
             let end_tsc = unsafe { rdtsc_raw() };
             let elapsed = start_instant.elapsed();
-            
+
             total_cycles += end_tsc - start_tsc;
             total_ns += elapsed.as_nanos() as u64;
         }
-        
+
         // Calculate TSC frequency in kHz
         // cycles per millisecond = cycles / (ns / 1_000_000)
         let khz = if total_ns > 0 {
@@ -67,17 +67,13 @@ pub fn calibrate() {
         } else {
             3_000_000 // Default 3GHz fallback
         };
-        
+
         TSC_KHZ.store(khz, Ordering::Relaxed);
         TSC_CALIBRATED.store(1, Ordering::Relaxed);
-        
-        tracing::info!(
-            "TSC calibrated: {} MHz ({} cycles/ms)",
-            khz / 1000,
-            khz
-        );
+
+        tracing::info!("TSC calibrated: {} MHz ({} cycles/ms)", khz / 1000, khz);
     }
-    
+
     #[cfg(not(target_arch = "x86_64"))]
     {
         tracing::warn!("TSC calibration skipped: not on x86_64");
@@ -108,7 +104,7 @@ unsafe fn rdtsc_raw() -> u64 {
 }
 
 /// Read the current TSC value (serializing)
-/// 
+///
 /// Uses `lfence` + `rdtsc` on x86_64 for proper serialization:
 /// - `lfence` ensures all prior instructions complete
 /// - `rdtsc` reads the timestamp
@@ -121,7 +117,7 @@ pub fn rdtsc() -> u64 {
             std::arch::x86_64::_rdtsc()
         }
     }
-    
+
     #[cfg(not(target_arch = "x86_64"))]
     {
         let instant = Instant::now();
@@ -179,7 +175,7 @@ impl TscGuard {
             telemetry: None,
         }
     }
-    
+
     /// Create with telemetry channel for async logging
     pub fn with_telemetry(telemetry: Arc<TelemetryChannel>) -> Self {
         Self {
@@ -187,13 +183,13 @@ impl TscGuard {
             telemetry: Some(telemetry),
         }
     }
-    
+
     /// Get elapsed cycles so far (without ending)
     #[inline]
     pub fn elapsed_cycles(&self) -> u64 {
         rdtsc().wrapping_sub(self.start)
     }
-    
+
     /// Get elapsed nanoseconds so far
     #[inline]
     pub fn elapsed_ns(&self) -> u64 {
@@ -205,7 +201,7 @@ impl Drop for TscGuard {
     fn drop(&mut self) {
         let end = rdtsc();
         let cycles = end.wrapping_sub(self.start);
-        
+
         if let Some(ref telemetry) = self.telemetry {
             // Non-blocking send to telemetry thread
             telemetry.push_latency(cycles);
@@ -228,12 +224,16 @@ impl LatencySample {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        Self { cycles, ns, timestamp }
+        Self {
+            cycles,
+            ns,
+            timestamp,
+        }
     }
 }
 
 /// Channel for async telemetry logging
-/// 
+///
 /// Uses a lock-free SPSC channel to send latency samples
 /// to a background thread that formats and logs them.
 pub struct TelemetryChannel {
@@ -246,7 +246,7 @@ impl TelemetryChannel {
         let (tx, rx) = crossbeam_channel::bounded(capacity);
         (Self { samples: tx }, rx)
     }
-    
+
     /// Push a latency sample (non-blocking)
     #[inline]
     pub fn push_latency(&self, cycles: u64) {
@@ -279,42 +279,42 @@ impl TelemetryStats {
             max_cycles: AtomicU64::new(0),
         }
     }
-    
+
     pub fn record_sample(&self, _avg: u64, min: u64, max: u64) {
         self.total_samples.fetch_add(1, Ordering::Relaxed);
-        
+
         // Update running min
         let current_min = self.min_cycles.load(Ordering::Relaxed);
         if min < current_min {
             self.min_cycles.store(min, Ordering::Relaxed);
         }
-        
+
         // Update running max
         let current_max = self.max_cycles.load(Ordering::Relaxed);
         if max > current_max {
             self.max_cycles.store(max, Ordering::Relaxed);
         }
     }
-    
+
     pub fn total(&self) -> u64 {
         self.total_samples.load(Ordering::Relaxed)
     }
-    
+
     pub fn avg_ns(&self) -> u64 {
         cycles_to_ns(self.avg_cycles.load(Ordering::Relaxed))
     }
-    
+
     pub fn min_ns(&self) -> u64 {
         cycles_to_ns(self.min_cycles.load(Ordering::Relaxed))
     }
-    
+
     pub fn max_ns(&self) -> u64 {
         cycles_to_ns(self.max_cycles.load(Ordering::Relaxed))
     }
 }
 
 /// Spawn the telemetry logging thread
-/// 
+///
 /// This thread consumes latency samples from the channel
 /// and logs them asynchronously (never blocks the hot path).
 pub fn spawn_telemetry_logger(
@@ -326,19 +326,19 @@ pub fn spawn_telemetry_logger(
         .spawn(move || {
             // Process samples in batches for efficiency
             let mut batch = Vec::with_capacity(100);
-            
+
             loop {
                 // Non-blocking drain of channel
                 while let Ok(sample) = rx.try_recv() {
                     batch.push(sample);
-                    
+
                     // Process in batches of 100
                     if batch.len() >= 100 {
                         process_batch(&batch, &stats);
                         batch.clear();
                     }
                 }
-                
+
                 // If no samples, yield to avoid busy-waiting
                 if batch.is_empty() {
                     std::thread::yield_now();
@@ -352,18 +352,18 @@ fn process_batch(samples: &[LatencySample], stats: &Arc<TelemetryStats>) {
     if samples.is_empty() {
         return;
     }
-    
+
     // Calculate statistics
     let total_cycles: u64 = samples.iter().map(|s| s.cycles).sum();
     let avg_cycles = total_cycles / samples.len() as u64;
-    
+
     // Find min/max
     let min_sample = samples.iter().min_by_key(|s| s.cycles).unwrap();
     let max_sample = samples.iter().max_by_key(|s| s.cycles).unwrap();
-    
+
     // Update running statistics (thread-safe)
     stats.record_sample(avg_cycles, min_sample.cycles, max_sample.cycles);
-    
+
     // Log summary
     tracing::debug!(
         "Tick-to-Trade batch: avg={}ns, min={}ns, max={}ns ({} samples)",
@@ -377,14 +377,14 @@ fn process_batch(samples: &[LatencySample], stats: &Arc<TelemetryStats>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_calibrate() {
         calibrate();
         assert!(is_tsc_calibrated());
         assert!(tsc_khz() > 0);
     }
-    
+
     #[test]
     fn test_rdtsc_different() {
         calibrate();
@@ -393,13 +393,18 @@ mod tests {
         // TSC should always increase (or wrap, but unlikely in test)
         assert!(t2 >= t1);
     }
-    
+
     #[test]
     fn test_cycles_to_ns() {
         calibrate();
         let cycles = tsc_khz(); // 1ms worth of cycles since tsc_khz is cycles/ms
         let ns = cycles_to_ns(cycles);
         // Should be approximately 1,000,000 ns (1ms) with wide tolerance for VM/noisy hardware
-        assert!(ns > 800_000 && ns < 1_300_000, "Expected ~1ms but got {} ns (cycles: {})", ns, cycles);
+        assert!(
+            ns > 800_000 && ns < 1_300_000,
+            "Expected ~1ms but got {} ns (cycles: {})",
+            ns,
+            cycles
+        );
     }
 }

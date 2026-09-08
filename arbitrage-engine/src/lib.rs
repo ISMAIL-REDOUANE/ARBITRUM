@@ -26,29 +26,29 @@
 //! - Lock-free SPSC ring buffers for inter-thread communication
 //! - In-memory `CacheDB` pre-synced via WebSocket events
 
-pub mod config;
-pub mod error;
-pub mod types;
-pub mod engine;
-pub mod cache_db;
-pub mod websocket;
-pub mod simulation;
-pub mod math;
-pub mod sender;
-pub mod hydration;
 pub mod broadcaster;
-pub mod tsc;
+pub mod cache_db;
+pub mod config;
+pub mod engine;
+pub mod error;
 pub mod event_loop;
+pub mod executor_abi;
+pub mod hydration;
+pub mod lead_lag;
+pub mod math;
+pub mod orderbook;
 pub mod pool_discovery;
 pub mod pool_scoring;
-pub mod lead_lag;
-pub mod route_gen;
 pub mod revmsim;
+pub mod route_gen;
+pub mod sender;
+pub mod simulation;
+pub mod tsc;
 pub mod two_leg_route;
-pub mod executor_abi;
-pub mod orderbook;
+pub mod types;
+pub mod websocket;
 
 pub use config::Config;
+pub use engine::ArbitrageEngine;
 pub use error::ArbitrageError;
 pub use types::*;
-pub use engine::ArbitrageEngine;

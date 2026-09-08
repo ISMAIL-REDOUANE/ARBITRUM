@@ -17,12 +17,27 @@ pub enum DexType {
 impl DexType {
     pub fn router_address(&self, chain_id: u64) -> Option<[u8; 20]> {
         match self {
-            DexType::UniswapV3 => Some(hex::decode("68b3465833fb72A70ecDF485E0e4C7bD8665Fc45").unwrap().try_into().unwrap()),
+            DexType::UniswapV3 => Some(
+                hex::decode("68b3465833fb72A70ecDF485E0e4C7bD8665Fc45")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            ),
             DexType::UniswapV2 => {
                 // Uniswap V2 Router address varies by chain
                 match chain_id {
-                    1 => Some(hex::decode("7a250d5630B4cF539739dF2C5dAcb4c659F2488D").unwrap().try_into().unwrap()), // Mainnet
-                    42161 => Some(hex::decode("0x34342370221487471869603929487e349A137c75").unwrap().try_into().unwrap()), // Arbitrum
+                    1 => Some(
+                        hex::decode("7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
+                    ), // Mainnet
+                    42161 => Some(
+                        hex::decode("0x34342370221487471869603929487e349A137c75")
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
+                    ), // Arbitrum
                     _ => None,
                 }
             }

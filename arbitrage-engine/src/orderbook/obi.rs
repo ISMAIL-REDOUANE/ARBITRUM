@@ -101,9 +101,8 @@ impl ObiSnapshot {
     ) -> Self {
         let mid = calculate_mid(bids, asks);
         let spread = calculate_spread(bids, asks);
-        let spread_bps = spread.and_then(|s| {
-            mid.map(|m| if m > 0.0 { s / m * 10000.0 } else { 0.0 })
-        });
+        let spread_bps =
+            spread.and_then(|s| mid.map(|m| if m > 0.0 { s / m * 10000.0 } else { 0.0 }));
 
         let _vol1 = volume_at_level(bids, 1) + volume_at_level(asks, 1);
         let _vol3 = volume_at_level(bids, 3) + volume_at_level(asks, 3);
@@ -128,12 +127,17 @@ impl ObiSnapshot {
         let depth_10bps = mid.map(|m| calculate_depth_at_bps(bids, asks, m, 0.001));
 
         let microprice = calculate_microprice(bids, asks);
-        let microprice_deviation_bps = microprice.zip(mid).map(|(mp, m)| {
-            if m > 0.0 { (mp - m) / m * 10000.0 } else { 0.0 }
-        });
+        let microprice_deviation_bps =
+            microprice
+                .zip(mid)
+                .map(|(mp, m)| if m > 0.0 { (mp - m) / m * 10000.0 } else { 0.0 });
 
-        let is_valid = !bids.is_empty() && !asks.is_empty() &&
-            bids.first().map(|(p, _)| asks.first().map(|(ap, _)| p < ap).unwrap_or(false)).unwrap_or(false);
+        let is_valid = !bids.is_empty()
+            && !asks.is_empty()
+            && bids
+                .first()
+                .map(|(p, _)| asks.first().map(|(ap, _)| p < ap).unwrap_or(false))
+                .unwrap_or(false);
 
         Self {
             exchange: exchange.to_string(),
@@ -213,14 +217,16 @@ pub fn calculate_depth_at_bps(bids: &[(f64, f64)], asks: &[(f64, f64)], mid: f64
     let upper = mid * (1.0 + bps);
 
     // Sum bids between lower and mid
-    let bid_depth: f64 = bids.iter()
+    let bid_depth: f64 = bids
+        .iter()
         .take_while(|(p, _)| *p >= lower)
         .take_while(|(p, _)| *p < mid)
         .map(|(_, q)| q)
         .sum();
 
     // Sum asks between mid and upper
-    let ask_depth: f64 = asks.iter()
+    let ask_depth: f64 = asks
+        .iter()
         .take_while(|(p, _)| *p <= upper)
         .take_while(|(p, _)| *p > mid)
         .map(|(_, q)| q)
@@ -325,15 +331,8 @@ mod tests {
         let bids = vec![(100.0, 1.0), (99.0, 2.0)];
         let asks = vec![(101.0, 1.0), (102.0, 2.0)];
 
-        let snapshot = ObiSnapshot::calculate(
-            "binance",
-            "BTCUSDT",
-            1000,
-            2000,
-            &bids,
-            &asks,
-            &config,
-        );
+        let snapshot =
+            ObiSnapshot::calculate("binance", "BTCUSDT", 1000, 2000, &bids, &asks, &config);
 
         assert!(snapshot.is_valid);
         assert!(snapshot.mid.is_some());
@@ -346,15 +345,8 @@ mod tests {
         let bids = vec![(102.0, 1.0)]; // Bid >= Ask = crossed
         let asks = vec![(101.0, 1.0)];
 
-        let snapshot = ObiSnapshot::calculate(
-            "binance",
-            "BTCUSDT",
-            1000,
-            2000,
-            &bids,
-            &asks,
-            &config,
-        );
+        let snapshot =
+            ObiSnapshot::calculate("binance", "BTCUSDT", 1000, 2000, &bids, &asks, &config);
 
         assert!(!snapshot.is_valid);
     }

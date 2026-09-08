@@ -12,8 +12,8 @@
 //! The L2Book is designed to be used by a single writer (SymbolActor).
 //! External access goes through channels, not shared memory.
 
-use std::collections::BTreeMap;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use crate::orderbook::l2_update::Side;
 
@@ -197,7 +197,12 @@ impl L2Book {
     }
 
     /// Apply an incremental update
-    pub fn apply_update(&mut self, price: f64, quantity: Quantity, side: Side) -> Result<(), BookError> {
+    pub fn apply_update(
+        &mut self,
+        price: f64,
+        quantity: Quantity,
+        side: Side,
+    ) -> Result<(), BookError> {
         // Validate inputs
         if !price.is_finite() || price <= 0.0 {
             return Err(BookError::InvalidPrice(price));
@@ -423,12 +428,12 @@ impl SymbolSnapshot {
         let obi_5 = calculate_obi(bid_vol5, ask_vol5);
         let obi_10 = calculate_obi(bid_vol10, ask_vol10);
 
-        let depth_5bps = book.mid_price().map(|m| {
-            calculate_depth_at_bps(book, m, 0.0005)
-        });
-        let depth_10bps = book.mid_price().map(|m| {
-            calculate_depth_at_bps(book, m, 0.001)
-        });
+        let depth_5bps = book
+            .mid_price()
+            .map(|m| calculate_depth_at_bps(book, m, 0.0005));
+        let depth_10bps = book
+            .mid_price()
+            .map(|m| calculate_depth_at_bps(book, m, 0.001));
 
         let microprice = calculate_microprice(book);
         let spread = book.spread();
@@ -479,12 +484,14 @@ fn calculate_depth_at_bps(book: &L2Book, mid: f64, bps: f64) -> f64 {
     let mid_scaled = (mid * (10u64.pow(scale) as f64)) as u64;
     let upper_scaled = (upper * (10u64.pow(scale) as f64)) as u64;
 
-    let bid_depth: f64 = book.bids
+    let bid_depth: f64 = book
+        .bids
         .range(SortedPrice(lower_scaled)..SortedPrice(mid_scaled))
         .map(|(_, q)| q)
         .sum();
 
-    let ask_depth: f64 = book.asks
+    let ask_depth: f64 = book
+        .asks
         .range(SortedPrice(mid_scaled)..SortedPrice(upper_scaled))
         .map(|(_, q)| q)
         .sum();
@@ -595,8 +602,8 @@ mod tests {
         let top3 = book.top_n_bids(3);
         assert_eq!(top3.len(), 3);
         assert_eq!(top3[0].0, 10000); // 100.0 scaled
-        assert_eq!(top3[1].0, 9900);  // 99.0 scaled
-        assert_eq!(top3[2].0, 9800);  // 98.0 scaled
+        assert_eq!(top3[1].0, 9900); // 99.0 scaled
+        assert_eq!(top3[2].0, 9800); // 98.0 scaled
 
         // Top 3 asks should be 101, 102 (lowest first)
         let top3_asks = book.top_n_asks(3);
@@ -717,18 +724,27 @@ mod tests {
         // They should be different due to volume distribution
         let obi1 = snap.obi_1.unwrap();
         let obi3 = snap.obi_3.unwrap();
-        assert!((obi1 - obi3).abs() > 0.01, "OBI1 {} should differ from OBI3 {}", obi1, obi3);
+        assert!(
+            (obi1 - obi3).abs() > 0.01,
+            "OBI1 {} should differ from OBI3 {}",
+            obi1,
+            obi3
+        );
     }
 
     #[test]
     fn test_deterministic_price_encoding_different_scales() {
         // BTCUSDT with scale 8: 50000.12345678 -> scaled = 5000012345678
         let mut btc_book = L2Book::with_scale("BTCUSDT", "binance", 8);
-        btc_book.apply_update(50000.12345678, 1.0, Side::Bid).unwrap();
+        btc_book
+            .apply_update(50000.12345678, 1.0, Side::Bid)
+            .unwrap();
 
         // SHIBUSDT with scale 10: 0.00001234567 -> scaled = 1234567
         let mut shib_book = L2Book::with_scale("SHIBUSDT", "binance", 10);
-        shib_book.apply_update(0.00001234567, 1.0, Side::Bid).unwrap();
+        shib_book
+            .apply_update(0.00001234567, 1.0, Side::Bid)
+            .unwrap();
 
         // Verify internal representation is correct
         let (btc_price, _) = btc_book.best_bid().unwrap();

@@ -5,10 +5,10 @@
 use crate::error::{ArbitrageError, Result};
 use crate::types::{DexType, PoolState};
 
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 const ARBITRUM_CHAIN_ID: u64 = 42161;
 
@@ -25,26 +25,44 @@ impl FactoryType {
     pub fn address(&self, chain_id: u64) -> Option<[u8; 20]> {
         match chain_id {
             1 => match self {
-                FactoryType::UniswapV2 => Some(hex_to_addr("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f")),
-                FactoryType::UniswapV3 => Some(hex_to_addr("0x1F98431c8aD98523631AE4a59f267346ea31F984")),
-                FactoryType::SushiSwap => Some(hex_to_addr("0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2c")),
+                FactoryType::UniswapV2 => {
+                    Some(hex_to_addr("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"))
+                }
+                FactoryType::UniswapV3 => {
+                    Some(hex_to_addr("0x1F98431c8aD98523631AE4a59f267346ea31F984"))
+                }
+                FactoryType::SushiSwap => {
+                    Some(hex_to_addr("0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2c"))
+                }
                 FactoryType::Aerodrome => None,
             },
             42161 => match self {
                 // Arbitrum Uniswap V2 Factory: 0x8605c81479211E8e5B7a97D91cD585276077412B
-                FactoryType::UniswapV2 => Some(hex_to_addr("0x8605c81479211E8e5B7a97D91cD585276077412B")),
+                FactoryType::UniswapV2 => {
+                    Some(hex_to_addr("0x8605c81479211E8e5B7a97D91cD585276077412B"))
+                }
                 // Arbitrum Uniswap V3 Factory: 0x1F98431c8aD98523631AE4a59f267346ea31F984
-                FactoryType::UniswapV3 => Some(hex_to_addr("0x1F98431c8aD98523631AE4a59f267346ea31F984")),
+                FactoryType::UniswapV3 => {
+                    Some(hex_to_addr("0x1F98431c8aD98523631AE4a59f267346ea31F984"))
+                }
                 // Arbitrum SushiSwap Factory: 0x1b02da8cb0d097cb8d57d3c6efb1b86d8f2e2b3F (verified)
-                FactoryType::SushiSwap => Some(hex_to_addr("0x1b02da8cb0d097cb8d57d3c6efb1b86d8f2e2b3F")),
+                FactoryType::SushiSwap => {
+                    Some(hex_to_addr("0x1b02da8cb0d097cb8d57d3c6efb1b86d8f2e2b3F"))
+                }
                 // Aerodrome is Base-only — not deployed on Arbitrum
                 FactoryType::Aerodrome => None,
             },
             8453 => match self {
-                FactoryType::UniswapV2 => Some(hex_to_addr("0x33128a8fAC17884797f674A8F92d0DD8E1f6d28c")),
-                FactoryType::UniswapV3 => Some(hex_to_addr("0x33128a8fAC17884797f674A8F92d0DD8E1f6d28c")),
+                FactoryType::UniswapV2 => {
+                    Some(hex_to_addr("0x33128a8fAC17884797f674A8F92d0DD8E1f6d28c"))
+                }
+                FactoryType::UniswapV3 => {
+                    Some(hex_to_addr("0x33128a8fAC17884797f674A8F92d0DD8E1f6d28c"))
+                }
                 FactoryType::SushiSwap => None,
-                FactoryType::Aerodrome => Some(hex_to_addr("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f")),
+                FactoryType::Aerodrome => {
+                    Some(hex_to_addr("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"))
+                }
             },
             _ => None,
         }
@@ -70,9 +88,15 @@ impl TokenPair {
         let t0 = token0_hex.to_lowercase();
         let t1 = token1_hex.to_lowercase();
         if t0 < t1 {
-            Self { token0: t0, token1: t1 }
+            Self {
+                token0: t0,
+                token1: t1,
+            }
         } else {
-            Self { token0: t1, token1: t0 }
+            Self {
+                token0: t1,
+                token1: t0,
+            }
         }
     }
 
@@ -140,6 +164,7 @@ impl Default for EnrichedPool {
                 reserve1: 0,
                 fee_tier: 0,
                 liquidity: 0,
+                sqrt_price_x96: 0,
                 current_tick: None,
                 last_update: 0,
             },
@@ -206,7 +231,8 @@ impl PoolRegistry {
     }
 
     pub fn get_by_token_pair(&self, pair: &TokenPair) -> Vec<EnrichedPool> {
-        self.pools.read()
+        self.pools
+            .read()
             .values()
             .filter(|p| p.token_pair == *pair)
             .cloned()
@@ -214,7 +240,8 @@ impl PoolRegistry {
     }
 
     pub fn get_fresh_pools(&self) -> Vec<EnrichedPool> {
-        self.pools.read()
+        self.pools
+            .read()
             .values()
             .filter(|p| p.is_fresh() && p.is_usable())
             .cloned()
@@ -222,7 +249,8 @@ impl PoolRegistry {
     }
 
     pub fn get_usable_pools(&self) -> Vec<EnrichedPool> {
-        self.pools.read()
+        self.pools
+            .read()
             .values()
             .filter(|p| p.is_usable())
             .cloned()
@@ -237,9 +265,7 @@ impl PoolRegistry {
     pub fn remove_stale_pools(&self, current_block: u64) {
         let threshold = self.config.staleness_threshold_blocks;
         let mut pools = self.pools.write();
-        pools.retain(|_, pool| {
-            current_block - pool.last_update_block <= threshold
-        });
+        pools.retain(|_, pool| current_block - pool.last_update_block <= threshold);
     }
 
     pub fn pool_count(&self) -> usize {
@@ -263,7 +289,7 @@ impl PoolRpcClient {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
-        
+
         Self {
             endpoint: endpoint.to_string(),
             client,
@@ -281,7 +307,8 @@ impl PoolRpcClient {
             "id": 1
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post(&self.endpoint)
             .json(&payload)
             .send()
@@ -314,7 +341,9 @@ impl UniswapV2PoolParser {
             .map_err(|e| ArbitrageError::Encoding(format!("Failed to decode reserves: {}", e)))?;
 
         if bytes.len() < 96 {
-            return Err(ArbitrageError::Encoding("Invalid reserves data length".to_string()));
+            return Err(ArbitrageError::Encoding(
+                "Invalid reserves data length".to_string(),
+            ));
         }
 
         let reserve0 = decode_uint112(&bytes[0..32]);
@@ -349,7 +378,9 @@ impl UniswapV3PoolParser {
             .map_err(|e| ArbitrageError::Encoding(format!("Failed to decode slot0: {}", e)))?;
 
         if bytes.len() < 64 {
-            return Err(ArbitrageError::Encoding("Invalid slot0 data length".to_string()));
+            return Err(ArbitrageError::Encoding(
+                "Invalid slot0 data length".to_string(),
+            ));
         }
 
         let sqrt_price_x96 = decode_uint256(&bytes[0..32]);
@@ -364,7 +395,9 @@ impl UniswapV3PoolParser {
             .map_err(|e| ArbitrageError::Encoding(format!("Failed to decode liquidity: {}", e)))?;
 
         if bytes.len() < 32 {
-            return Err(ArbitrageError::Encoding("Invalid liquidity data length".to_string()));
+            return Err(ArbitrageError::Encoding(
+                "Invalid liquidity data length".to_string(),
+            ));
         }
 
         Ok(decode_uint128(&bytes[16..32]))
@@ -423,28 +456,32 @@ impl PoolDiscovery {
         let factory_hex = hex::encode(factory);
         let data = "0x18160ddd";
         let result = self.rpc_client.call(&factory_hex, data).await?;
-        
+
         let hex = result.trim_start_matches("0x");
         let count_bytes = hex::decode(hex)
             .map_err(|e| ArbitrageError::Encoding(format!("Failed to decode pair count: {}", e)))?;
-        
+
         let pair_count = decode_uint256(&count_bytes) as usize;
-        
-        tracing::info!("Uniswap V2 factory {} has {} pairs", factory_hex, pair_count);
-        
+
+        tracing::info!(
+            "Uniswap V2 factory {} has {} pairs",
+            factory_hex,
+            pair_count
+        );
+
         let mut pools = Vec::new();
         let max_pools = self.config.max_pools_per_dex;
-        
+
         for i in 0..std::cmp::min(pair_count, max_pools) {
             let idx = encode_uint256(i as u128);
             let data = format!("0x6a627842{}", hex::encode(idx));
             let result = self.rpc_client.call(&factory_hex, &data).await?;
-            
+
             if let Ok(pool_addr) = parse_address_from_result(&result) {
                 pools.push(pool_addr);
             }
         }
-        
+
         Ok(pools)
     }
 
@@ -452,18 +489,18 @@ impl PoolDiscovery {
         let pool_hex = hex::encode(pool_addr);
         let data = "0x0902f13c";
         let result = self.rpc_client.call(&pool_hex, data).await?;
-        
+
         let (reserve0, reserve1, _) = UniswapV2PoolParser::parse_reserves(&result)?;
-        
+
         let token0_data = "0x0dfe1681";
         let token1_data = "0xd21220a7";
-        
+
         let token0_result = self.rpc_client.call(&pool_hex, token0_data).await?;
         let token1_result = self.rpc_client.call(&pool_hex, token1_data).await?;
-        
+
         let token0 = parse_address_from_result(&token0_result)?;
         let token1 = parse_address_from_result(&token1_result)?;
-        
+
         let pool = EnrichedPool {
             base: PoolState {
                 address: format!("0x{}", hex::encode(pool_addr)),
@@ -473,6 +510,7 @@ impl PoolDiscovery {
                 reserve1,
                 fee_tier: 30,
                 liquidity: reserve0.saturating_add(reserve1),
+                sqrt_price_x96: 0,
                 current_tick: None,
                 last_update: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -496,33 +534,33 @@ impl PoolDiscovery {
             last_update_block: 0,
             freshness: PoolFreshness::Fresh,
         };
-        
+
         Ok(Some(pool))
     }
 
     pub async fn sync_uniswap_v3_pool(&self, pool_addr: [u8; 20]) -> Result<Option<EnrichedPool>> {
         let pool_hex = hex::encode(pool_addr);
-        
+
         let slot0_data = "0x3850c7bd";
         let slot0_result = self.rpc_client.call(&pool_hex, slot0_data).await?;
         let (sqrt_price_x96, tick) = UniswapV3PoolParser::parse_slot0(&slot0_result)?;
-        
+
         let liquidity_data = "0x1a686502";
         let liquidity_result = self.rpc_client.call(&pool_hex, liquidity_data).await?;
         let liquidity = UniswapV3PoolParser::parse_liquidity(&liquidity_result)?;
-        
+
         let token0_data = "0x0dfe1681";
         let token1_data = "0xd21220a7";
         let fee_data = "0xddca3f43";
-        
+
         let token0_result = self.rpc_client.call(&pool_hex, token0_data).await?;
         let token1_result = self.rpc_client.call(&pool_hex, token1_data).await?;
         let fee_result = self.rpc_client.call(&pool_hex, fee_data).await?;
-        
+
         let token0 = parse_address_from_result(&token0_result)?;
         let token1 = parse_address_from_result(&token1_result)?;
         let fee = parse_u24_from_result(&fee_result)?;
-        
+
         let pool = EnrichedPool {
             base: PoolState {
                 address: format!("0x{}", hex::encode(pool_addr)),
@@ -532,6 +570,7 @@ impl PoolDiscovery {
                 reserve1: 0,
                 fee_tier: fee,
                 liquidity,
+                sqrt_price_x96,
                 current_tick: Some(tick),
                 last_update: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -555,37 +594,37 @@ impl PoolDiscovery {
             last_update_block: 0,
             freshness: PoolFreshness::Fresh,
         };
-        
+
         Ok(Some(pool))
     }
 
     pub async fn run_discovery(&self) -> Result<usize> {
         let mut total_discovered = 0;
-        
+
         for factory_type in &self.config.factories {
             if let Some(factory_addr) = factory_type.address(self.config.chain_id) {
                 match factory_type {
                     FactoryType::UniswapV2 => {
                         let pools = self.discover_uniswap_v2_pools(factory_addr).await?;
                         total_discovered += pools.len();
-                        
+
                         for pool_addr in pools {
                             if let Ok(Some(pool)) = self.sync_uniswap_v2_pool(pool_addr).await {
                                 let addr_str = format!("0x{}", hex::encode(pool_addr));
                                 self.registry.update_pool(addr_str, pool);
                             }
                         }
-                    },
+                    }
                     FactoryType::UniswapV3 => {
                         tracing::warn!("UniswapV3 pool discovery requires event scanning - not fully implemented");
-                    },
+                    }
                     _ => {
                         tracing::debug!("Factory type {:?} not yet implemented", factory_type);
                     }
                 }
             }
         }
-        
+
         tracing::info!("Pool discovery complete: {} total pools", total_discovered);
         Ok(total_discovered)
     }
@@ -595,14 +634,16 @@ fn parse_address_from_result(result: &str) -> Result<[u8; 20]> {
     let hex = result.trim_start_matches("0x");
     let bytes = hex::decode(hex)
         .map_err(|e| ArbitrageError::Encoding(format!("Failed to decode address: {}", e)))?;
-    
+
     if bytes.len() < 32 {
-        return Err(ArbitrageError::Encoding("Invalid address data length".to_string()));
+        return Err(ArbitrageError::Encoding(
+            "Invalid address data length".to_string(),
+        ));
     }
-    
+
     let mut addr = [0u8; 20];
     addr.copy_from_slice(&bytes[12..32]);
-    
+
     Ok(addr)
 }
 
@@ -610,11 +651,13 @@ fn parse_u24_from_result(result: &str) -> Result<u32> {
     let hex = result.trim_start_matches("0x");
     let bytes = hex::decode(hex)
         .map_err(|e| ArbitrageError::Encoding(format!("Failed to decode u24: {}", e)))?;
-    
+
     if bytes.len() < 32 {
-        return Err(ArbitrageError::Encoding("Invalid u24 data length".to_string()));
+        return Err(ArbitrageError::Encoding(
+            "Invalid u24 data length".to_string(),
+        ));
     }
-    
+
     let fee = u32::from_be_bytes([0, bytes[29], bytes[30], bytes[31]]);
     Ok(fee)
 }
@@ -640,7 +683,7 @@ mod tests {
             "0x0000000000000000000000000000000000000002",
             "0x0000000000000000000000000000000000000001",
         );
-        
+
         assert_eq!(pair1.token0, "0x0000000000000000000000000000000000000001");
         assert_eq!(pair1.token1, "0x0000000000000000000000000000000000000002");
         assert_eq!(pair1, pair2);
@@ -652,12 +695,12 @@ mod tests {
             freshness: PoolFreshness::Fresh,
             ..Default::default()
         };
-        
+
         assert!(pool.is_fresh());
-        
+
         pool.freshness = PoolFreshness::Stale;
         assert!(!pool.is_fresh());
-        
+
         pool.executable_liquidity = 0;
         assert!(!pool.is_usable());
     }

@@ -15,8 +15,8 @@
 //! Each SymbolActor owns exactly one L2Book instance.
 //! Updates are processed sequentially, ensuring deterministic state.
 
-use crate::orderbook::{L2Book, ObiConfig, ObiSnapshot, SymbolSnapshot};
 use crate::orderbook::l2_update::L2Update;
+use crate::orderbook::{L2Book, ObiConfig, ObiSnapshot, SymbolSnapshot};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -88,7 +88,8 @@ impl SymbolActor {
             update.update_id,
         );
 
-        self.book.apply_snapshot(&snapshot)
+        self.book
+            .apply_snapshot(&snapshot)
             .map_err(ActorError::BookError)?;
 
         self.last_update = Instant::now();
@@ -100,11 +101,15 @@ impl SymbolActor {
     /// Get current OBI snapshot
     pub fn get_obi_snapshot(&self) -> ObiSnapshot {
         let scale = self.book.price_scale() as f64;
-        let bids_f64: Vec<(f64, f64)> = self.book.top_n_bids(10)
+        let bids_f64: Vec<(f64, f64)> = self
+            .book
+            .top_n_bids(10)
             .into_iter()
             .map(|(p, q)| (p as f64 / scale, q))
             .collect();
-        let asks_f64: Vec<(f64, f64)> = self.book.top_n_asks(10)
+        let asks_f64: Vec<(f64, f64)> = self
+            .book
+            .top_n_asks(10)
             .into_iter()
             .map(|(p, q)| (p as f64 / scale, q))
             .collect();
@@ -179,7 +184,11 @@ impl SymbolActorHandle {
         (Self { tx }, rx)
     }
 
-    pub fn new_with_config(exchange: &str, symbol: &str, obi_config: ObiConfig) -> (Self, mpsc::Receiver<ActorMessage>, SymbolActor) {
+    pub fn new_with_config(
+        exchange: &str,
+        symbol: &str,
+        obi_config: ObiConfig,
+    ) -> (Self, mpsc::Receiver<ActorMessage>, SymbolActor) {
         let (tx, rx) = mpsc::channel();
         let actor = SymbolActor::new_with_config(exchange, symbol, obi_config);
         (Self { tx }, rx, actor)
@@ -210,7 +219,10 @@ impl SymbolActorHandle {
 }
 
 /// Run the actor loop
-pub fn run_actor(actor: &mut SymbolActor, rx: &mut mpsc::Receiver<ActorMessage>) -> Result<(), ActorError> {
+pub fn run_actor(
+    actor: &mut SymbolActor,
+    rx: &mut mpsc::Receiver<ActorMessage>,
+) -> Result<(), ActorError> {
     loop {
         match rx.recv() {
             Ok(ActorMessage::Update(update)) => {

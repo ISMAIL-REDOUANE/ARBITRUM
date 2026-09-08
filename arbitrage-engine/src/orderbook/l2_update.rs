@@ -239,8 +239,15 @@ impl std::fmt::Display for L2UpdateError {
             L2UpdateError::InvalidPrice(p) => write!(f, "Invalid price: {}", p),
             L2UpdateError::InvalidQuantity(q) => write!(f, "Invalid quantity: {}", q),
             L2UpdateError::EmptyUpdate => write!(f, "Update has no book data"),
-            L2UpdateError::StaleUpdate { expected_id, actual_id } => {
-                write!(f, "Stale update: expected {}, got {}", expected_id, actual_id)
+            L2UpdateError::StaleUpdate {
+                expected_id,
+                actual_id,
+            } => {
+                write!(
+                    f,
+                    "Stale update: expected {}, got {}",
+                    expected_id, actual_id
+                )
             }
         }
     }
@@ -286,9 +293,7 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// Parse a level tuple `["price", "qty"]` strictly (fail-closed).
-fn parse_level(
-    (price, qty): &(String, String),
-) -> Result<(f64, f64), ParseError> {
+fn parse_level((price, qty): &(String, String)) -> Result<(f64, f64), ParseError> {
     let p: f64 = price
         .parse()
         .map_err(|_| ParseError::InvalidPrice(price.clone()))?;
@@ -370,8 +375,8 @@ pub fn parse_binance_frame(
     recv_ts_ns: u64,
     fallback_symbol: Option<&str>,
 ) -> Result<Vec<L2Update>, ParseError> {
-    let value: serde_json::Value = serde_json::from_str(text)
-        .map_err(|e| ParseError::MalformedJson(e.to_string()))?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| ParseError::MalformedJson(e.to_string()))?;
 
     // Combined stream wrapper?
     let (stream_name, data) = match value.get("stream").and_then(|s| s.as_str()) {
@@ -390,10 +395,12 @@ pub fn parse_binance_frame(
         .or_else(|| fallback_symbol.map(|s| s.to_uppercase()))
         .ok_or(ParseError::MissingField("stream"))?;
 
-    let depth: BinancePartialDepth = serde_json::from_value(data)
-        .map_err(|e| ParseError::MalformedJson(e.to_string()))?;
+    let depth: BinancePartialDepth =
+        serde_json::from_value(data).map_err(|e| ParseError::MalformedJson(e.to_string()))?;
 
-    let update_id = depth.last_update_id.ok_or(ParseError::MissingField("lastUpdateId"))?;
+    let update_id = depth
+        .last_update_id
+        .ok_or(ParseError::MissingField("lastUpdateId"))?;
     let bids = parse_levels(&depth.bids)?;
     let asks = parse_levels(&depth.asks)?;
 
@@ -463,8 +470,8 @@ pub struct BybitOrderbookData {
 /// `type=snapshot` → full replacement; `type=delta` → incremental
 /// (documented Bybit v5 semantics, not invented).
 pub fn parse_bybit_frame(text: &str, recv_ts_ns: u64) -> Result<Vec<L2Update>, ParseError> {
-    let msg: BybitOrderbookMessage = serde_json::from_str(text)
-        .map_err(|e| ParseError::MalformedJson(e.to_string()))?;
+    let msg: BybitOrderbookMessage =
+        serde_json::from_str(text).map_err(|e| ParseError::MalformedJson(e.to_string()))?;
 
     // Control / ack frames are ignored (not errors).
     if let Some(op) = &msg.op {

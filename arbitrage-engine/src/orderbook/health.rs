@@ -163,7 +163,9 @@ impl ConnectionHealth {
     pub fn combined_health(&self) -> &'static str {
         match (&self.l1_health, &self.l2_health) {
             (FeedHealth::Healthy, FeedHealth::Healthy) => "healthy",
-            (FeedHealth::Healthy | FeedHealth::Stale, FeedHealth::Healthy | FeedHealth::Stale) => "degraded",
+            (FeedHealth::Healthy | FeedHealth::Stale, FeedHealth::Healthy | FeedHealth::Stale) => {
+                "degraded"
+            }
             _ => "critical",
         }
     }
@@ -253,7 +255,8 @@ impl HealthMonitor {
 
     /// Register an exchange
     pub fn register_exchange(&mut self, exchange: &str) {
-        self.exchanges.insert(exchange.to_string(), ConnectionHealth::new(exchange));
+        self.exchanges
+            .insert(exchange.to_string(), ConnectionHealth::new(exchange));
     }
 
     /// Get health for an exchange
@@ -276,12 +279,16 @@ impl HealthMonitor {
 
     /// Check if any L2 is stale (blocks signal generation)
     pub fn any_l2_stale(&self) -> bool {
-        self.exchanges.values().any(|h| h.is_l2_stale(self.l2_staleness))
+        self.exchanges
+            .values()
+            .any(|h| h.is_l2_stale(self.l2_staleness))
     }
 
     /// Check if any L1 is stale
     pub fn any_l1_stale(&self) -> bool {
-        self.exchanges.values().any(|h| h.is_l1_stale(self.l1_staleness))
+        self.exchanges
+            .values()
+            .any(|h| h.is_l1_stale(self.l1_staleness))
     }
 
     /// Get all exchanges with their health status
@@ -289,7 +296,11 @@ impl HealthMonitor {
         self.exchanges
             .iter()
             .map(|(name, health)| {
-                (name.as_str(), health.l1_health.as_str(), health.l2_health.as_str())
+                (
+                    name.as_str(),
+                    health.l1_health.as_str(),
+                    health.l2_health.as_str(),
+                )
             })
             .collect()
     }
@@ -298,8 +309,8 @@ impl HealthMonitor {
 impl Default for HealthMonitor {
     fn default() -> Self {
         Self::new(
-            Duration::from_secs(5),  // L1: 5 seconds
-            Duration::from_secs(2),  // L2: 2 seconds
+            Duration::from_secs(5), // L1: 5 seconds
+            Duration::from_secs(2), // L2: 2 seconds
         )
     }
 }

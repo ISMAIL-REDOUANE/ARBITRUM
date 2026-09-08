@@ -66,11 +66,14 @@ impl RevmCacheDB {
         for addr in addresses {
             let mut key = [0u8; 20];
             key.copy_from_slice(&addr);
-            self.accounts.insert(key, AccountData {
-                balance: u128::MAX,
-                nonce: 0,
-                code_hash: [0u8; 32],
-            });
+            self.accounts.insert(
+                key,
+                AccountData {
+                    balance: u128::MAX,
+                    nonce: 0,
+                    code_hash: [0u8; 32],
+                },
+            );
         }
 
         tracing::debug!("Seeded 5 known addresses with MAX_BALANCE");
@@ -81,11 +84,14 @@ impl RevmCacheDB {
         if let Some(info) = self.accounts.get_mut(&address) {
             info.balance = balance;
         } else {
-            self.accounts.insert(address, AccountData {
-                balance,
-                nonce: 0,
-                code_hash: [0u8; 32],
-            });
+            self.accounts.insert(
+                address,
+                AccountData {
+                    balance,
+                    nonce: 0,
+                    code_hash: [0u8; 32],
+                },
+            );
         }
     }
 
@@ -102,7 +108,7 @@ impl RevmCacheDB {
     }
 
     pub fn insert_contract(&mut self, address: [u8; 20], bytecode: Vec<u8>) {
-        use tiny_keccak::{Keccak, Hasher};
+        use tiny_keccak::{Hasher, Keccak};
 
         let mut hasher = Keccak::v256();
         hasher.update(&bytecode);
@@ -112,11 +118,14 @@ impl RevmCacheDB {
         if let Some(info) = self.accounts.get_mut(&address) {
             info.code_hash = hash;
         } else {
-            self.accounts.insert(address, AccountData {
-                balance: 0,
-                nonce: 0,
-                code_hash: hash,
-            });
+            self.accounts.insert(
+                address,
+                AccountData {
+                    balance: 0,
+                    nonce: 0,
+                    code_hash: hash,
+                },
+            );
         }
     }
 

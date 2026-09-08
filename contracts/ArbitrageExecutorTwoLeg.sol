@@ -73,6 +73,17 @@ contract ArbitrageExecutorTwoLeg {
     /// (excludes pre-existing balances, flash-loan principal and fees)
     uint256 public lastProfit;
 
+    /// @notice Reentrancy lock
+    uint256 private _locked;
+
+    /// @notice Reentrancy guard
+    modifier nonReentrant() {
+        require(_locked == 0, "REENTRANCY");
+        _locked = 1;
+        _;
+        _locked = 0;
+    }
+
     /// @notice Arbitrage profit event
     event Profit(uint256 profit, uint256 gasLeft);
 
@@ -111,7 +122,7 @@ contract ArbitrageExecutorTwoLeg {
         address leg2Pool,
         bytes calldata leg1Data,
         bytes calldata leg2Data
-    ) external returns (uint256 profit) {
+    ) external nonReentrant returns (uint256 profit) {
         require(leg1Pool != address(0), "INVALID_LEG1_POOL");
         require(leg2Pool != address(0), "INVALID_LEG2_POOL");
 
@@ -121,7 +132,7 @@ contract ArbitrageExecutorTwoLeg {
         uint256 balanceBefore = IERC20(loanToken).balanceOf(address(this));
 
         bytes memory userData = abi.encode(
-            address(this), // initiator
+            msg.sender, // initiator (AUDIT #6 fix)
             loanToken,
             loanAmount,
             leg1Pool,
@@ -210,16 +221,20 @@ contract ArbitrageExecutorTwoLeg {
         // leg1Data is pre-encoded exactInputSingle calldata (struct form).
         // amountIn is validated on-chain to equal the flash-loan amount.
         // ═══════════════════════════════════════════════════════════════
+        uint256 preExistingIntermediateBalance = IERC20(leg1OutputToken).balanceOf(address(this));
+        
         (bool leg1Success,) = UNISWAP_V3_ROUTER.call(leg1Data);
         require(leg1Success, "LEG1_FAILED");
 
+        uint256 postLeg1Balance = IERC20(leg1OutputToken).balanceOf(address(this));
+        require(postLeg1Balance > preExistingIntermediateBalance, "LEG1_NO_OUTPUT");
+        uint256 leg1Output = postLeg1Balance - preExistingIntermediateBalance;
+
         // ═══════════════════════════════════════════════════════════════
         // LEG 2: intermediate -> loanToken via SwapRouter02
-        // The router consumes the executor's actual intermediate-token
-        // balance (amountIn is overridden on the fly below to the real
-        // balance), so leg2 always uses the true leg1 output.
+        // The router consumes EXACTLY the leg1 output tokens (AUDIT #5 fix).
         // ═══════════════════════════════════════════════════════════════
-        bytes memory leg2Calldata = _overrideAmountIn(leg2Data, IERC20(leg1OutputToken).balanceOf(address(this)));
+        bytes memory leg2Calldata = _overrideAmountIn(leg2Data, leg1Output);
 
         IERC20(leg1OutputToken).approve(UNISWAP_V3_ROUTER, type(uint256).max);
         IERC20(leg1OutputToken).approve(PERMIT2, type(uint256).max);

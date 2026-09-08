@@ -8,25 +8,25 @@
 //! - Warm cache integration for DEX pools
 //! - Dynamic math engine for optimal trade sizing
 
+use crate::cache_db::RevmCacheDB;
+use crate::config::Config;
 use crate::engine::SharedState;
 use crate::error::{ArbitrageError, Result};
-use crate::types::{PriceEvent, ArbitrageOpportunity, SimulationResult, DexType, PoolState};
-use crate::cache_db::RevmCacheDB;
-use crate::tsc::{TelemetryChannel, TelemetryStats, TscGuard};
-use crate::math::{ArbitrageMath, calculate_arbitrage_profit};
-use crate::config::Config;
 use crate::executor_abi::build_two_leg_execute_calldata;
 use crate::lead_lag::{LeadLagDetector, MovementConfig, MovementDetection};
+use crate::math::{calculate_arbitrage_profit, ArbitrageMath};
 use crate::pool_discovery::{
-    EnrichedPool, FactoryType, PoolDiscovery, PoolDiscoveryConfig, PoolFreshness,
-    PoolRegistry, TokenPair,
+    EnrichedPool, FactoryType, PoolDiscovery, PoolDiscoveryConfig, PoolFreshness, PoolRegistry,
+    TokenPair,
 };
 use crate::revmsim::RevmSimulator;
 use crate::route_gen::{ArbitrageRoute, RouteFinder, RouteFinderConfig};
+use crate::tsc::{TelemetryChannel, TelemetryStats, TscGuard};
 use crate::two_leg_route::{DexType as ExecutorDexType, ExecutorConfig, SwapLeg, TwoLegRoute};
+use crate::types::{ArbitrageOpportunity, DexType, PoolState, PriceEvent, SimulationResult};
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -57,8 +57,7 @@ fn hex_to_address(s: &str) -> Option<revm::primitives::Address> {
     Some(revm::primitives::Address::from_slice(&bytes))
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SimulationStats {
     pub total_simulations: u64,
     pub successful_arbitrages: u64,
@@ -66,7 +65,6 @@ pub struct SimulationStats {
     pub total_cycles: u64,
     pub total_ns: u64,
 }
-
 
 pub struct SimulationEngine {
     state: Arc<SharedState>,
@@ -131,9 +129,9 @@ impl SimulationEngine {
         RouteFinderConfig {
             max_hops: 2,
             max_price_impact_bps: 100,
-            min_profit_wei: 10_000_000,      // 10 USDC (raw)
-            max_gas_cost_wei: 5_000_000,     // 5 USDC (raw)
-            flash_loan_fee_bps: 0,           // Balancer V2: 0% flash loan fee
+            min_profit_wei: 10_000_000,  // 10 USDC (raw)
+            max_gas_cost_wei: 5_000_000, // 5 USDC (raw)
+            flash_loan_fee_bps: 0,       // Balancer V2: 0% flash loan fee
         }
     }
 
@@ -158,6 +156,7 @@ impl SimulationEngine {
                 reserve1: 0,
                 fee_tier,
                 liquidity: 0,
+                sqrt_price_x96: 0,
                 current_tick: None,
                 last_update: 0,
             };
@@ -168,16 +167,37 @@ impl SimulationEngine {
         };
 
         for p in &config.dex.uniswap_v3_pools {
-            register(&registry, &p.address, &p.token0, &p.token1, p.fee_tier,
-                     DexType::UniswapV3, FactoryType::UniswapV3);
+            register(
+                &registry,
+                &p.address,
+                &p.token0,
+                &p.token1,
+                p.fee_tier,
+                DexType::UniswapV3,
+                FactoryType::UniswapV3,
+            );
         }
         for p in &config.dex.uniswap_v2_pools {
-            register(&registry, &p.address, &p.token0, &p.token1, p.fee_tier,
-                     DexType::UniswapV2, FactoryType::UniswapV2);
+            register(
+                &registry,
+                &p.address,
+                &p.token0,
+                &p.token1,
+                p.fee_tier,
+                DexType::UniswapV2,
+                FactoryType::UniswapV2,
+            );
         }
         for p in &config.dex.sushiswap_pools {
-            register(&registry, &p.address, &p.token0, &p.token1, p.fee_tier,
-                     DexType::SushiSwap, FactoryType::SushiSwap);
+            register(
+                &registry,
+                &p.address,
+                &p.token0,
+                &p.token1,
+                p.fee_tier,
+                DexType::SushiSwap,
+                FactoryType::SushiSwap,
+            );
         }
 
         tracing::info!(
@@ -259,7 +279,10 @@ impl SimulationEngine {
     ///   6. Net profit validation    (min_profit_wei hard gate)
     ///   7. Broadcast                (executor calldata → broadcaster)
     /// ═════════════════════════════════════════════════════════════════════
-    async fn process_event(&self, event: &PriceEvent) -> Result<Option<(ArbitrageOpportunity, Vec<u8>)>> {
+    async fn process_event(
+        &self,
+        event: &PriceEvent,
+    ) -> Result<Option<(ArbitrageOpportunity, Vec<u8>)>> {
         // ── STAGE 1: LEAD-LAG DETECTION ─────────────────────────────────────
         let Some(movement) = self.lead_lag.detect_movement(event) else {
             return Ok(None);
@@ -279,7 +302,9 @@ impl SimulationEngine {
             return Ok(None);
         }
 
-        let price: f64 = event.price.parse()
+        let price: f64 = event
+            .price
+            .parse()
             .map_err(|_| ArbitrageError::Simulation("Invalid price".to_string()))?;
         if price <= 0.0 {
             return Ok(None);
@@ -347,7 +372,8 @@ impl SimulationEngine {
             let deviation_pct = (movement.velocity_bps_per_sec.abs() / 100.0).min(5.0);
             let sell_price = price * (1.0 + deviation_pct / 100.0);
 
-            let gross_profit_wei = calculate_arbitrage_profit(price, sell_price, 1_000_000_000_000_000u64, 18);
+            let gross_profit_wei =
+                calculate_arbitrage_profit(price, sell_price, 1_000_000_000_000_000u64, 18);
 
             let math = ArbitrageMath::with_tick_data(
                 79228162514264337593543950336u128,
@@ -474,9 +500,7 @@ impl SimulationEngine {
             0
         };
 
-        let profit_wei = profit_raw
-            .saturating_mul(USDC_TO_WEI)
-            .min(u64::MAX as u128) as u64;
+        let profit_wei = profit_raw.saturating_mul(USDC_TO_WEI).min(u64::MAX as u128) as u64;
 
         SimulationResult {
             success: call.success,
@@ -518,7 +542,10 @@ impl SimulationEngine {
         // 1) REVM fork state
         match self.revm.hydrate_from_rpc(None).await {
             Ok(snapshot) => {
-                tracing::info!("REVM state hydrated at block {}", snapshot.block.block_number);
+                tracing::info!(
+                    "REVM state hydrated at block {}",
+                    snapshot.block.block_number
+                );
                 // Fund the simulated caller so gas is available.
                 self.revm.inject_test_caller(revm::primitives::U256::from(
                     10_000_000_000_000_000_000u64,
@@ -537,18 +564,16 @@ impl SimulationEngine {
             Ok(executor_addr) if !executor_addr.is_empty() => {
                 let client = crate::revmsim::RpcClient::new(&rpc);
                 match client.get_code(&executor_addr).await {
-                    Ok(code) if !code.is_empty() => {
-                        match self.revm.load_executor_bytecode(code) {
-                            Ok(()) => {
-                                self.executor_loaded.store(true, Ordering::Relaxed);
-                                tracing::info!(
-                                    "Executor bytecode loaded from {} (exact REVM simulation enabled)",
-                                    executor_addr
-                                );
-                            }
-                            Err(e) => tracing::warn!("Failed to load executor bytecode: {}", e),
+                    Ok(code) if !code.is_empty() => match self.revm.load_executor_bytecode(code) {
+                        Ok(()) => {
+                            self.executor_loaded.store(true, Ordering::Relaxed);
+                            tracing::info!(
+                                "Executor bytecode loaded from {} (exact REVM simulation enabled)",
+                                executor_addr
+                            );
                         }
-                    }
+                        Err(e) => tracing::warn!("Failed to load executor bytecode: {}", e),
+                    },
                     Ok(_) => tracing::warn!(
                         "EXECUTOR_ADDRESS {} has no code - exact REVM simulation disabled",
                         executor_addr
@@ -567,8 +592,12 @@ impl SimulationEngine {
         let discovery = PoolDiscovery::new(&rpc, PoolDiscoveryConfig::default());
         let mut synced = 0usize;
         for addr in self.registry.get_all_addresses() {
-            let Some(pool) = self.registry.get(&addr) else { continue };
-            let Ok(addr_bytes) = hex::decode(addr.trim_start_matches("0x")) else { continue };
+            let Some(pool) = self.registry.get(&addr) else {
+                continue;
+            };
+            let Ok(addr_bytes) = hex::decode(addr.trim_start_matches("0x")) else {
+                continue;
+            };
             if addr_bytes.len() != 20 {
                 continue;
             }
@@ -577,7 +606,9 @@ impl SimulationEngine {
 
             let result = match pool.dex_type {
                 DexType::UniswapV3 => discovery.sync_uniswap_v3_pool(arr).await,
-                DexType::UniswapV2 | DexType::SushiSwap => discovery.sync_uniswap_v2_pool(arr).await,
+                DexType::UniswapV2 | DexType::SushiSwap => {
+                    discovery.sync_uniswap_v2_pool(arr).await
+                }
                 DexType::Aerodrome => continue,
             };
             if let Ok(Some(updated)) = result {
@@ -592,7 +623,10 @@ impl SimulationEngine {
         );
     }
 
-    async fn simulate_arbitrage(&self, opportunity: &ArbitrageOpportunity) -> Result<SimulationResult> {
+    async fn simulate_arbitrage(
+        &self,
+        opportunity: &ArbitrageOpportunity,
+    ) -> Result<SimulationResult> {
         #[cfg(target_arch = "x86_64")]
         let start_cycle = unsafe { _rdtsc() };
 
@@ -642,14 +676,22 @@ impl SimulationEngine {
             success: profit_wei > 0,
             profit_wei,
             gas_used: 200_000,
-            revert_reason: if profit_wei == 0 { Some("No profit".to_string()) } else { None },
+            revert_reason: if profit_wei == 0 {
+                Some("No profit".to_string())
+            } else {
+                None
+            },
             execution_time_us,
         })
     }
 
     /// Optimized simulation using stack arrays and warm cache
     #[inline(always)]
-    fn execute_optimized_simulation(&self, opportunity: &ArbitrageOpportunity, cache_db: &RevmCacheDB) -> u64 {
+    fn execute_optimized_simulation(
+        &self,
+        opportunity: &ArbitrageOpportunity,
+        cache_db: &RevmCacheDB,
+    ) -> u64 {
         let _stack_buf = [0u8; 256];
         let mut profit: u64 = 0;
 
@@ -735,12 +777,7 @@ pub fn spawn_simulation_engine(
     telemetry_channel: Arc<TelemetryChannel>,
     telemetry_stats: Arc<TelemetryStats>,
 ) -> Result<std::thread::JoinHandle<()>> {
-    let engine = SimulationEngine::new(
-        state,
-        broadcast_tx,
-        telemetry_channel,
-        telemetry_stats,
-    );
+    let engine = SimulationEngine::new(state, broadcast_tx, telemetry_channel, telemetry_stats);
 
     let handle = std::thread::Builder::new()
         .name("simulation-engine".to_string())
@@ -765,12 +802,7 @@ pub struct DexQuoteCalculator;
 
 impl DexQuoteCalculator {
     #[inline(always)]
-    pub fn uniswap_v2_out(
-        amount_in: u64,
-        reserve_in: u64,
-        reserve_out: u64,
-        fee_bps: u32,
-    ) -> u64 {
+    pub fn uniswap_v2_out(amount_in: u64, reserve_in: u64, reserve_out: u64, fee_bps: u32) -> u64 {
         if reserve_in == 0 || reserve_out == 0 {
             return 0;
         }
@@ -870,9 +902,7 @@ mod tests {
         let reserve_out = 4_000_000_000_000u64;
         let fee_bps = 30u32;
 
-        let out = DexQuoteCalculator::uniswap_v2_out(
-            amount_in, reserve_in, reserve_out, fee_bps
-        );
+        let out = DexQuoteCalculator::uniswap_v2_out(amount_in, reserve_in, reserve_out, fee_bps);
 
         assert!(out > 1_900_000_000);
         assert!(out < 2_100_000_000);
@@ -921,9 +951,18 @@ mod tests {
         );
 
         let profit_wei = 100_000_000_000_000_000u64;
-        let is_profitable = math.is_profitable(profit_wei, 1_000_000_000_000_000_000u64, 50, 200_000, 3500.0);
+        let is_profitable = math.is_profitable(
+            profit_wei,
+            1_000_000_000_000_000_000u64,
+            50,
+            200_000,
+            3500.0,
+        );
 
-        assert!(is_profitable, "High profit opportunity should be profitable");
+        assert!(
+            is_profitable,
+            "High profit opportunity should be profitable"
+        );
     }
 
     #[test]
@@ -938,9 +977,18 @@ mod tests {
         );
 
         let tiny_profit_wei = 10_000_000_000_000_000u64;
-        let is_profitable = math.is_profitable(tiny_profit_wei, 10_000_000_000_000_000_000u64, 100, 500_000, 3500.0);
+        let is_profitable = math.is_profitable(
+            tiny_profit_wei,
+            10_000_000_000_000_000_000u64,
+            100,
+            500_000,
+            3500.0,
+        );
 
-        assert!(!is_profitable, "Tiny profit below safety buffer should be filtered");
+        assert!(
+            !is_profitable,
+            "Tiny profit below safety buffer should be filtered"
+        );
     }
 
     #[test]
@@ -956,7 +1004,10 @@ mod tests {
 
         let optimal = math.calculate_optimal_trade_size(18, 18, 10);
 
-        assert!(optimal.slippage_bps <= 10, "Slippage should be within bounds");
+        assert!(
+            optimal.slippage_bps <= 10,
+            "Slippage should be within bounds"
+        );
     }
 
     #[test]
@@ -972,9 +1023,19 @@ mod tests {
 
         let friction = math.calculate_friction(1_000_000_000_000_000_000u64, 50, 200_000);
 
-        assert!(friction.flash_loan_fee_wei > 0, "Flash loan fee should be charged");
-        assert!(friction.dex_swap_fee_wei > 0, "DEX swap fee should be charged");
-        assert_eq!(friction.gas_cost_wei, 50 * 200_000, "Gas cost calculation should match");
+        assert!(
+            friction.flash_loan_fee_wei > 0,
+            "Flash loan fee should be charged"
+        );
+        assert!(
+            friction.dex_swap_fee_wei > 0,
+            "DEX swap fee should be charged"
+        );
+        assert_eq!(
+            friction.gas_cost_wei,
+            50 * 200_000,
+            "Gas cost calculation should match"
+        );
         assert_eq!(
             friction.total_friction_wei,
             friction.flash_loan_fee_wei + friction.dex_swap_fee_wei + friction.gas_cost_wei,
@@ -985,6 +1046,11 @@ mod tests {
     #[test]
     fn test_safety_buffer_constant() {
         use crate::math::SAFETY_BUFFER_USD;
-        const { assert!(SAFETY_BUFFER_USD >= 1.0 && SAFETY_BUFFER_USD <= 2.0, "Safety buffer should be $1-2"); }
+        const {
+            assert!(
+                SAFETY_BUFFER_USD >= 1.0 && SAFETY_BUFFER_USD <= 2.0,
+                "Safety buffer should be $1-2"
+            );
+        }
     }
 }

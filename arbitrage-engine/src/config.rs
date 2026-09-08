@@ -2,25 +2,25 @@
 //!
 //! Loads and manages configuration from `config.toml` or environment variables.
 
+use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::Path;
-use anyhow::{Context, Result};
 
 /// Main configuration structure
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     /// Engine settings
     pub engine: EngineConfig,
-    
+
     /// Binance WebSocket settings
     pub binance: BinanceConfig,
-    
+
     /// Chain configurations (Base, Arbitrum, etc.)
     pub chains: ChainConfigs,
-    
+
     /// DEX pool configurations
     pub dex: DexConfig,
-    
+
     /// Risk parameters
     pub risk: RiskConfig,
 }
@@ -30,16 +30,16 @@ pub struct Config {
 pub struct EngineConfig {
     /// Minimum profit threshold in wei
     pub min_profit_wei: u64,
-    
+
     /// Maximum gas limit per arbitrage transaction
     pub max_gas_limit: u64,
-    
+
     /// Ring buffer capacity for SPSC channels
     pub ring_buffer_size: usize,
-    
+
     /// Simulation timeout in milliseconds
     pub simulation_timeout_ms: u64,
-    
+
     /// Maximum concurrent simulations
     pub max_concurrent_simulations: usize,
 }
@@ -49,13 +49,13 @@ pub struct EngineConfig {
 pub struct BinanceConfig {
     /// WebSocket endpoint URL
     pub ws_url: String,
-    
+
     /// Trading symbols to monitor (e.g., ["ethusdt", "wbtcusdt"])
     pub symbols: Vec<String>,
-    
+
     /// Reconnection delay in milliseconds
     pub reconnect_delay_ms: u64,
-    
+
     /// Maximum reconnection attempts
     pub max_reconnect_attempts: usize,
 }
@@ -65,7 +65,7 @@ pub struct BinanceConfig {
 pub struct ChainConfigs {
     /// Base chain configuration
     pub base: ChainConfig,
-    
+
     /// Arbitrum configuration
     pub arbitrum: ChainConfig,
 }
@@ -75,13 +75,13 @@ pub struct ChainConfigs {
 pub struct ChainConfig {
     /// Chain ID
     pub chain_id: u64,
-    
+
     /// RPC WebSocket URL (for event syncing)
     pub rpc_ws_url: String,
-    
+
     /// RPC HTTP URL (for queries - should NOT be used in hot path)
     pub rpc_http_url: String,
-    
+
     /// Contract addresses
     pub addresses: ChainAddresses,
 }
@@ -91,28 +91,28 @@ pub struct ChainConfig {
 pub struct ChainAddresses {
     /// Arbitrage engine contract address
     pub engine: String,
-    
+
     /// Balancer Vault address
     pub balancer_vault: String,
-    
+
     /// Uniswap V2 Router
     pub uniswap_v2_router: String,
-    
+
     /// Uniswap V3 Router
     pub uniswap_v3_router: String,
-    
+
     /// Aerodrome Router (Base)
     pub aerodrome_router: Option<String>,
-    
+
     /// SushiSwap Router
     pub sushiswap_router: String,
-    
+
     /// WETH address
     pub weth: String,
-    
+
     /// USDC address
     pub usdc: String,
-    
+
     /// USDT address
     pub usdt: String,
 }
@@ -122,13 +122,13 @@ pub struct ChainAddresses {
 pub struct DexConfig {
     /// Uniswap V2 pools to monitor
     pub uniswap_v2_pools: Vec<PoolConfig>,
-    
+
     /// Uniswap V3 pools to monitor
     pub uniswap_v3_pools: Vec<PoolConfig>,
-    
+
     /// Aerodrome pools (Base)
     pub aerodrome_pools: Vec<PoolConfig>,
-    
+
     /// SushiSwap pools
     pub sushiswap_pools: Vec<PoolConfig>,
 }
@@ -138,16 +138,16 @@ pub struct DexConfig {
 pub struct PoolConfig {
     /// Pool contract address
     pub address: String,
-    
+
     /// Token0 address
     pub token0: String,
-    
+
     /// Token1 address
     pub token1: String,
-    
+
     /// Fee tier (in basis points)
     pub fee_tier: u32,
-    
+
     /// Pool type: "volatile" or "stable"
     pub pool_type: String,
 }
@@ -157,13 +157,13 @@ pub struct PoolConfig {
 pub struct RiskConfig {
     /// Maximum position size per trade (in token units)
     pub max_position_size: u64,
-    
+
     /// Maximum daily trade count
     pub max_daily_trades: u64,
-    
+
     /// Maximum daily loss (stops trading if exceeded)
     pub max_daily_loss_wei: u64,
-    
+
     /// Cooldown between trades in milliseconds
     pub trade_cooldown_ms: u64,
 }
@@ -177,17 +177,16 @@ impl Config {
     /// Load configuration from a specific path
     pub fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        
+
         if !path.exists() {
             tracing::warn!("Config file not found at {:?}, using defaults", path);
             return Ok(Self::default());
         }
-        
+
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {:?}", path))?;
-        
-        toml::from_str(&contents)
-            .with_context(|| format!("Failed to parse config from {:?}", path))
+
+        toml::from_str(&contents).with_context(|| format!("Failed to parse config from {:?}", path))
     }
 }
 
@@ -217,7 +216,9 @@ impl Default for Config {
                         balancer_vault: "0xBA12222222228d8Ba445958a75a0704d566BF2C8".to_string(),
                         uniswap_v2_router: "".to_string(),
                         uniswap_v3_router: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45".to_string(),
-                        aerodrome_router: Some("0x0B404b975d461A45E3Aa6b96809746b40A76239F".to_string()),
+                        aerodrome_router: Some(
+                            "0x0B404b975d461A45E3Aa6b96809746b40A76239F".to_string(),
+                        ),
                         sushiswap_router: "".to_string(),
                         weth: "0x4200000000000000000000000000000000000006".to_string(),
                         usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
